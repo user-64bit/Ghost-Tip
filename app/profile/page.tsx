@@ -9,7 +9,12 @@ import { useWallet } from "../lib/wallet/context";
 import { useTipStore } from "../store/tipStore";
 import { useCluster } from "../components/cluster-context";
 import { useMounted } from "../lib/hooks/use-mounted";
-import { Badge, statusBadgeLabel, statusBadgeTone } from "../components/ui/Badge";
+import {
+  Badge,
+  statusBadgeIcon,
+  statusBadgeLabel,
+  statusBadgeTone,
+} from "../components/ui/Badge";
 import { lamportsToSolString } from "../lib/lamports";
 import { fetchJson } from "../lib/fetcher";
 import type { Cluster, TipMode, TipStatus } from "../types/tip";
@@ -402,7 +407,10 @@ function TipRow({
       className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 transition hover:border-border-strong"
     >
       <div className="flex items-center gap-4">
-        <Badge tone={statusBadgeTone(status)}>{statusBadgeLabel(status)}</Badge>
+        <Badge tone={statusBadgeTone(status)}>
+          {statusBadgeIcon(status)}
+          {statusBadgeLabel(status)}
+        </Badge>
         <div>
           <p className="text-sm font-medium">
             {direction === "in" ? "from " : "to "}
