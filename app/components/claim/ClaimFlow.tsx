@@ -251,7 +251,7 @@ export function ClaimFlow({ token }: { token: string }) {
         {/* Memo */}
         <MemoReveal
           locked={!verified}
-          lockedLabel={preview.memo}
+          hasMemo={preview.memo != null}
           memo={verified?.memo ?? null}
         />
 
@@ -371,43 +371,99 @@ function Dot({ active }: { active: boolean }) {
 
 function MemoReveal({
   locked,
-  lockedLabel,
+  hasMemo,
   memo,
 }: {
   locked: boolean;
-  lockedLabel: string | null;
+  /** Whether a memo exists at all — drives the locked skeleton visibility. */
+  hasMemo: boolean;
   memo: string | null;
 }) {
   if (!locked && !memo) return null;
+  if (locked && !hasMemo) return null;
   return (
-    <div className="mt-4 rounded-xl border border-border bg-background px-4 py-3">
-      <p className="text-xs uppercase tracking-widest text-subtle">Message</p>
+    <div className="mt-4 overflow-hidden rounded-xl border border-border bg-background px-4 py-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs uppercase tracking-widest text-subtle">Message</p>
+        {locked && (
+          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-subtle">
+            <LockIcon />
+            Verification-gated
+          </span>
+        )}
+      </div>
       <AnimatePresence mode="wait" initial={false}>
         {locked ? (
-          <motion.p
+          <motion.div
             key="locked"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="mt-1 select-none font-mono text-sm text-subtle blur-[3px]"
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2 }}
+            className="mt-3"
+            aria-label="Message locked until verification"
           >
-            {lockedLabel ?? "— — — — —"}
-          </motion.p>
+            <div className="flex flex-col gap-1.5">
+              <ScrambleBar width="92%" />
+              <ScrambleBar width="78%" />
+              <ScrambleBar width="64%" />
+            </div>
+          </motion.div>
         ) : (
           <motion.p
             key="revealed"
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-1 text-sm text-foreground"
+            transition={{ duration: 0.22 }}
+            className="mt-2 text-sm text-foreground"
           >
             {memo ?? (
-              <span className="text-subtle italic">No message included</span>
+              <span className="italic text-subtle">No message included</span>
             )}
           </motion.p>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ScrambleBar({ width }: { width: string }) {
+  return (
+    <div
+      className="relative h-3 overflow-hidden rounded-sm"
+      style={{ width }}
+    >
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(124,106,247,0.08)_0%,rgba(124,106,247,0.18)_50%,rgba(124,106,247,0.08)_100%)]" />
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "repeating-linear-gradient(90deg, rgba(255,255,255,0.10) 0 4px, transparent 4px 10px)",
+        }}
+      />
+      <div
+        className="absolute inset-0 shimmer"
+        style={{ mixBlendMode: "overlay" }}
+      />
+    </div>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <rect x="4" y="10" width="16" height="11" rx="2.5" />
+      <path d="M8 10V7a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+    </svg>
   );
 }
 

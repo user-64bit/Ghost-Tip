@@ -51,9 +51,11 @@ export const GET = handler(
     amount: tip.amount.toString(),
     tokenMint: tip.tokenMint,
     tokenSymbol: tokenSymbolFor(tip.tokenMint),
-    // Memo gated behind OAuth — return a placeholder indicator so the UI can
-    // render a "locked memo" affordance without leaking the text.
-    memo: tip.memo ? "🔒 locked until verification" : null,
+    // We don't leak the memo text — just signal whether one exists so the
+    // UI can render the locked affordance. The client renders its own
+    // placeholder now (prior version returned an emoji string here which
+    // leaked into screenshots).
+    memo: tip.memo ? "__LOCKED__" : null,
     expiryAt: tip.expiryAt.toISOString(),
     intendedHandle: claim.intendedHandleValue,
     handleType: claim.intendedHandleType as TipPreview["handleType"],
