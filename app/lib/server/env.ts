@@ -94,6 +94,22 @@ function isBuildPhase(): boolean {
   return phase === "phase-production-build" || phase === "phase-development-build";
 }
 
+/**
+ * Error thrown when required env vars are missing at runtime. Carries the
+ * structured report so API routes can surface a JSON response instead of
+ * letting Next.js fall through to its default HTML error page.
+ */
+export class EnvValidationError extends Error {
+  readonly report: EnvReport;
+  constructor(report: EnvReport) {
+    super(
+      `GhostTip env validation failed: ${report.problems.join(" | ")}`
+    );
+    this.name = "EnvValidationError";
+    this.report = report;
+  }
+}
+
 export function validateEnv(): EnvReport {
   if (cached) return cached;
 
@@ -118,7 +134,6 @@ export function validateEnv(): EnvReport {
     }
   }
 
-  // Dangerous flags are always warnings in dev; in prod, they're fatal.
   const isRuntimeProduction =
     process.env.NODE_ENV === "production" && !isBuildPhase();
   for (const flag of DANGER_FLAGS) {
@@ -146,11 +161,6 @@ export function validateEnv(): EnvReport {
       "",
     ].join("\n");
     console.error(banner);
-    if (isRuntimeProduction) {
-      throw new Error(
-        `GhostTip refuses to start in production with the above env issues.`
-      );
-    }
   } else if (warnings.length) {
     console.warn(
       `[env] ${warnings.length} non-fatal warning(s):\n${warnings
@@ -162,10 +172,26 @@ export function validateEnv(): EnvReport {
   return report;
 }
 
-// Run once at module import. During `next build` the checks are soft
-// (warnings only) so a missing TWITTER_CLIENT_ID at build time doesn't
-// fail CI — the same module runs again at first runtime request and
-// throws there if config is still missing.
+/**
+ * Runtime guard for API routes. Unlike the previous module-import throw,
+ * this one is called lazily from the `handler` wrapper so failures surface
+ * through our JSON error envelope — not as a Next.js default HTML 500.
+ */
+export function assertEnvOrThrow(): void {
+  if (isBuildPhase()) return;
+  if (process.env.NODE_ENV !== "production") {
+    validateEnv();
+    return;
+  }
+  const report = validateEnv();
+  if (!report.ok) {
+    throw new EnvValidationError(report);
+  }
+}
+
+// Soft warm-up at import — logs problems but doesn't throw, so the route
+// handler stays reachable and can return a structured error via
+// `assertEnvOrThrow()` + the api.ts handler wrapper.
 if (!isBuildPhase()) {
   validateEnv();
 }

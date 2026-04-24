@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { ApiError, ApiSuccess, ErrorCode } from "../../types/tip";
 import { errorMessage } from "../../types/tip";
+import { EnvValidationError, assertEnvOrThrow } from "./env";
 
 export function ok<T>(data: T, init?: ResponseInit): NextResponse {
   const body: ApiSuccess<T> = { success: true, data };
@@ -54,8 +55,23 @@ type Handler<TCtx = any> = (
 export function handler<TCtx>(fn: Handler<TCtx>): Handler<TCtx> {
   return async (req, ctx) => {
     try {
+      // Lazy env guard — fails with a structured JSON body on Vercel when a
+      // required var is missing, instead of tripping Next.js's default
+      // HTML 500 page. Only fires on the first request per cold start.
+      assertEnvOrThrow();
       return await fn(req, ctx);
     } catch (err) {
+      if (err instanceof EnvValidationError) {
+        console.error(
+          `[api] ${req.method} ${req.nextUrl.pathname} blocked by env validation:`,
+          err.report.problems
+        );
+        return fail(
+          "INTERNAL",
+          `Server misconfigured — missing env vars: ${err.report.problems.join("; ")}`,
+          500
+        );
+      }
       const message = err instanceof Error ? err.message : String(err);
       console.error(`[api] ${req.method} ${req.nextUrl.pathname} failed:`, err);
       const code = inferErrorCode(message);
