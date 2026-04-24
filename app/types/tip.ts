@@ -179,6 +179,7 @@ export const ERROR_CODES = {
   OAUTH_MISMATCH: "OAUTH_MISMATCH",
   OAUTH_STATE_INVALID: "OAUTH_STATE_INVALID",
   OAUTH_FAILED: "OAUTH_FAILED",
+  OAUTH_APP_NOT_ENROLLED: "OAUTH_APP_NOT_ENROLLED",
   WALLET_SIGNATURE_INVALID: "WALLET_SIGNATURE_INVALID",
   INSUFFICIENT_BALANCE: "INSUFFICIENT_BALANCE",
   INVALID_HANDLE: "INVALID_HANDLE",
@@ -214,6 +215,8 @@ export function errorMessage(code: ErrorCode): string {
       return "The verification request expired. Please try again.";
     case "OAUTH_FAILED":
       return "We couldn't verify with X. Please try again.";
+    case "OAUTH_APP_NOT_ENROLLED":
+      return "The X Developer App isn't attached to a Project (server config). Ask the operator to associate it and regenerate the OAuth 2.0 credentials.";
     case "WALLET_SIGNATURE_INVALID":
       return "Wallet signature verification failed.";
     case "INSUFFICIENT_BALANCE":
