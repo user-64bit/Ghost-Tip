@@ -107,6 +107,7 @@ export function TipForm() {
         senderWallet: address,
         recipientHandle: normalisedHandle,
         handleType: "x" as HandleType,
+        cluster,
         amount: amountLamports!.toString(),
         memo: memo.trim() || undefined,
         expiryHours,

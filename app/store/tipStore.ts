@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { CreateTipResponse } from "../types/tip";
+import type { Cluster, CreateTipResponse } from "../types/tip";
 
 /**
  * Tip state persisted in the browser so the sender doesn't lose their claim
@@ -11,6 +11,7 @@ import type { CreateTipResponse } from "../types/tip";
 
 export interface StoredTip {
   tipIntentId: string;
+  cluster: Cluster;
   claimLink: string;
   claimToken: string;
   recipientHandle: string;
@@ -73,6 +74,7 @@ export function mapCreateResponseToStored(
 ): StoredTip {
   return {
     tipIntentId: res.tipIntentId,
+    cluster: res.cluster,
     claimLink: res.claimLink,
     claimToken: res.claimToken,
     recipientHandle: extra.recipientHandle,

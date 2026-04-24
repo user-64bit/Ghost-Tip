@@ -5,13 +5,21 @@ import Link from "next/link";
 import { PageWrapper } from "./components/layout/PageWrapper";
 import { TipForm } from "./components/tip/TipForm";
 import { useTipStore } from "./store/tipStore";
+import { useCluster } from "./components/cluster-context";
 import { Badge, statusBadgeLabel, statusBadgeTone } from "./components/ui/Badge";
 import type { TipStatus } from "./types/tip";
 
 export default function Home() {
-  const lastTip = useTipStore((s) =>
-    s.lastTipId ? s.tips.find((t) => t.tipIntentId === s.lastTipId) : null
-  );
+  const { cluster } = useCluster();
+  // Only surface the "last tip" shortcut when it belongs to the active
+  // cluster — otherwise a mainnet user sees a devnet card (or vice versa).
+  const lastTip = useTipStore((s) => {
+    if (!s.lastTipId) return null;
+    const tip = s.tips.find((t) => t.tipIntentId === s.lastTipId);
+    if (!tip) return null;
+    if ((tip.cluster ?? cluster) !== cluster) return null;
+    return tip;
+  });
 
   return (
     <PageWrapper narrow>

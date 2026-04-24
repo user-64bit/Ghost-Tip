@@ -10,9 +10,12 @@ export type TipStatus =
 
 export type HandleType = "x" | "telegram" | "ghosttip";
 
+export type Cluster = "devnet" | "testnet" | "mainnet" | "localnet";
+
 export interface TipIntent {
   id: string;
   senderWallet: string;
+  cluster: Cluster;
   recipientHandleType: HandleType;
   recipientHandleValue: string;
   resolvedRecipientWallet: string | null;
@@ -73,6 +76,7 @@ export interface CreateTipRequest {
   senderWallet: string;
   recipientHandle: string;
   handleType: HandleType;
+  cluster?: Cluster;
   amount: string; // lamports as string to survive JSON
   tokenMint?: string;
   memo?: string;
@@ -82,6 +86,7 @@ export interface CreateTipRequest {
 export interface CreateTipResponse {
   tipIntentId: string;
   status: TipStatus;
+  cluster: Cluster;
   claimLink: string;
   claimToken: string; // raw, for immediate copy — never persisted
   expiryAt: string;
