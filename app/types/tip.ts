@@ -12,15 +12,23 @@ export type HandleType = "x" | "telegram" | "ghosttip";
 
 export type Cluster = "devnet" | "testnet" | "mainnet" | "localnet";
 
+export type TipMode = "ESCROW_CLAIM" | "DIRECT_SEND";
+export type TipRail = "native" | "loyal";
+
 export interface TipIntent {
   id: string;
   senderWallet: string;
   cluster: Cluster;
+  mode: TipMode;
+  /** 'native' SOL transfer, or 'loyal' private SPL rail. Null for ESCROW_CLAIM. */
+  rail: TipRail | null;
   recipientHandleType: HandleType;
   recipientHandleValue: string;
   resolvedRecipientWallet: string | null;
-  amount: string; // bigint serialised as string — lamports
+  amount: string; // bigint serialised as string — raw token units
   tokenMint: string;
+  tokenSymbol: string;
+  tokenDecimals: number;
   memo: string | null;
   status: TipStatus;
   expiryAt: string; // ISO
@@ -34,6 +42,7 @@ export interface TipIntent {
   refundedAt: string | null;
   cancelledAt: string | null;
   tipEscrowPda: string | null;
+  usernameDepositPda: string | null;
   tipIdBytes: string; // hex of [u8;32]
   errorCode: string | null;
   errorMessage: string | null;
@@ -83,7 +92,8 @@ export interface CreateTipRequest {
   expiryHours?: number;
 }
 
-export interface CreateTipResponse {
+export interface EscrowCreateTipResponse {
+  mode: "ESCROW_CLAIM";
   tipIntentId: string;
   status: TipStatus;
   cluster: Cluster;
@@ -95,6 +105,9 @@ export interface CreateTipResponse {
   authorityPda: string;
   programId: string;
   amount: string;
+  tokenMint: string;
+  tokenSymbol: string;
+  tokenDecimals: number;
   depositPayload: {
     tipIdBytes: string;
     escrowPda: string;
@@ -104,6 +117,44 @@ export interface CreateTipResponse {
     programId: string;
   };
 }
+
+export interface DirectSendCreateTipResponse {
+  mode: "DIRECT_SEND";
+  tipIntentId: string;
+  status: TipStatus;
+  cluster: Cluster;
+  rail: TipRail;
+  recipientWallet: string;
+  recipientHandle: string;
+  recipientHandleType: HandleType;
+  expiryAt: string;
+  amount: string;
+  tokenMint: string;
+  tokenSymbol: string;
+  tokenDecimals: number;
+  /**
+   * For rail=loyal: the privateSendPayload carries the username +
+   * token_mint the client needs to kick off Loyal's private transfer.
+   * For rail=native: null.
+   */
+  privateSendPayload: {
+    recipientUsername: string;
+    tokenMint: string;
+    amount: string;
+    cluster: Cluster;
+  } | null;
+  /**
+   * For rail=native: a plain system-transfer descriptor.
+   */
+  nativeSendPayload: {
+    recipientWallet: string;
+    amountLamports: string;
+  } | null;
+}
+
+export type CreateTipResponse =
+  | EscrowCreateTipResponse
+  | DirectSendCreateTipResponse;
 
 export interface ApiSuccess<T> {
   success: true;
