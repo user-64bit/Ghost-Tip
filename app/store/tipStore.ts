@@ -2,23 +2,28 @@
 
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import type { Cluster, CreateTipResponse } from "../types/tip";
+import type { Cluster, CreateTipResponse, TipMode, TipRail } from "../types/tip";
 
 /**
  * Tip state persisted in the browser so the sender doesn't lose their claim
- * link if they refresh. Keyed by tipIntentId; we keep the last 10.
+ * link if they refresh. Keyed by tipIntentId; we keep the last 20.
  */
 
 export interface StoredTip {
   tipIntentId: string;
   cluster: Cluster;
-  claimLink: string;
-  claimToken: string;
+  mode: TipMode;
+  rail: TipRail | null;
+  /** Only populated for ESCROW_CLAIM tips. */
+  claimLink?: string;
+  claimToken?: string;
   recipientHandle: string;
   recipientHandleType: "x" | "telegram" | "ghosttip";
+  recipientWallet?: string;
   amount: string;
+  tokenSymbol: string;
   expiryAt: string;
-  escrowPda: string;
+  escrowPda?: string;
   createdAt: string;
   txSignature?: string;
   status?: string;
@@ -72,16 +77,34 @@ export function mapCreateResponseToStored(
     recipientHandleType: StoredTip["recipientHandleType"];
   }
 ): StoredTip {
+  if (res.mode === "ESCROW_CLAIM") {
+    return {
+      tipIntentId: res.tipIntentId,
+      cluster: res.cluster,
+      mode: res.mode,
+      rail: null,
+      claimLink: res.claimLink,
+      claimToken: res.claimToken,
+      recipientHandle: extra.recipientHandle,
+      recipientHandleType: extra.recipientHandleType,
+      amount: res.amount,
+      tokenSymbol: res.tokenSymbol,
+      expiryAt: res.expiryAt,
+      escrowPda: res.escrowPda,
+      createdAt: new Date().toISOString(),
+    };
+  }
   return {
     tipIntentId: res.tipIntentId,
     cluster: res.cluster,
-    claimLink: res.claimLink,
-    claimToken: res.claimToken,
+    mode: res.mode,
+    rail: res.rail,
     recipientHandle: extra.recipientHandle,
     recipientHandleType: extra.recipientHandleType,
+    recipientWallet: res.recipientWallet,
     amount: res.amount,
+    tokenSymbol: res.tokenSymbol,
     expiryAt: res.expiryAt,
-    escrowPda: res.escrowPda,
     createdAt: new Date().toISOString(),
   };
 }
