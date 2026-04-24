@@ -1,114 +1,126 @@
 /**
- * Loyal Network SDK wrapper.
+ * Loyal Network SDK glue for GhostTip.
  *
- * The real Loyal SDK exposes a private-tx rail: the sender submits a
- * "private send" intent and the SDK settles the transfer on-chain without
- * publicly linking sender↔recipient wallets. GhostTip uses this primitive
- * as the settlement rail for its deposit into the escrow PDA.
+ * Docs: https://docs.askloyal.com/sdk/private-transactions/quick-start
  *
- * When `NEXT_PUBLIC_LOYAL_MOCK=true` (or the real SDK isn't wired yet),
- * this module routes deposits through a mocked private rail that:
- *   - adds a realistic latency
- *   - returns a fake session id + real on-chain tx signature
- *   - exposes the same interface as the real SDK
+ * Model: Loyal wraps MagicBlock's Private Ephemeral Rollups (PER) so SPL
+ * tokens can be shielded into a Deposit PDA, delegated to a TEE validator,
+ * and moved privately between users or into username-keyed deposits. It is
+ * NOT a one-call "send SOL privately" primitive — it is an SPL-only
+ * shielded-balance system.
  *
- * REPLACE WITH LOYAL SDK: every function marked below needs to swap its
- * body for a call into `@loyal-network/sdk` (or the real package name).
- * The public interface — LoyalClient, LoyalPrivateSend, etc. — should
- * stay stable so API routes don't need to change.
+ * We use it for the DIRECT_SEND path (warm recipient in IdentityMap) when
+ * the token is SPL. For native SOL or cold recipients we fall back to our
+ * Anchor escrow + claim-link flow.
  */
 
-import type { Address } from "@solana/kit";
+import type { ClusterMoniker } from "./solana-client";
 
-export interface LoyalPrivateSendIntent {
-  sender: Address;
-  /** Recipient handle (e.g. "@elonmusk") or ghost-recipient PDA address. */
-  recipientHint: string;
-  amountLamports: bigint;
-  tokenMint: string;
-  /** Opaque payload the rail will settle via our escrow program. */
-  settlementInstruction?: {
-    programId: string;
-    escrowPda: string;
-    tipIdHex: string;
-  };
-}
+/** MagicBlock TEE (PER) endpoints, per the Loyal quick-start. */
+export const PER_ENDPOINTS: Record<
+  ClusterMoniker,
+  { rpc: string; ws: string } | null
+> = {
+  // Loyal ships a single devnet-facing TEE and a mainnet TEE.
+  devnet: {
+    rpc: "https://tee.magicblock.app",
+    ws: "wss://tee.magicblock.app",
+  },
+  mainnet: {
+    rpc: "https://mainnet-tee.magicblock.app",
+    ws: "wss://mainnet-tee.magicblock.app",
+  },
+  testnet: null,
+  localnet: null,
+};
 
-export interface LoyalPrivateSendResult {
-  sessionId: string;
-  /** On-chain tx signature of the eventual settlement. */
-  txSignature: string;
-  /** Wall-clock when the rail considered the send final. */
-  settledAt: string;
-  /** Privacy score self-reported by Loyal (0..1). */
-  privacyScore: number;
-}
-
-export interface LoyalClient {
-  privateSend: (
-    intent: LoyalPrivateSendIntent,
-    opts?: { txSignatureHint?: string }
-  ) => Promise<LoyalPrivateSendResult>;
-}
-
-function isMock(): boolean {
-  if (process.env.NEXT_PUBLIC_LOYAL_MOCK === "true") return true;
-  if (!process.env.LOYAL_API_KEY) return true;
-  return false;
-}
-
-/** REPLACE WITH LOYAL SDK — construct the real `LoyalClient` here. */
-export function createLoyalClient(): LoyalClient {
-  if (isMock()) return createMockLoyalClient();
-
-  // REPLACE WITH LOYAL SDK: e.g.
-  //   import { LoyalClient as RealClient } from "@loyal-network/sdk";
-  //   return new RealClient({
-  //     apiKey: process.env.LOYAL_API_KEY!,
-  //     endpoint: process.env.LOYAL_NETWORK_URL!,
-  //     cluster: process.env.NEXT_PUBLIC_SOLANA_NETWORK as "devnet" | "mainnet",
-  //   });
-  return createMockLoyalClient();
-}
-
-/* -------------------------------------------------------------------------- */
-/*                                   Mock                                     */
-/* -------------------------------------------------------------------------- */
-
-function createMockLoyalClient(): LoyalClient {
-  return {
-    async privateSend(intent, opts) {
-      // Simulate private-rail latency — real Loyal settles within a couple of
-      // slots, so 400–900ms is representative end-to-end.
-      const jitter = 400 + Math.floor(Math.random() * 500);
-      await new Promise((r) => setTimeout(r, jitter));
-
-      // When called from the server claim/refund paths we already have a real
-      // on-chain signature — pass it through so tip cards can link to it.
-      const sig =
-        opts?.txSignatureHint ??
-        `MOCK_LOYAL_${Date.now().toString(36)}_${Math.random()
-          .toString(36)
-          .slice(2, 10)}`;
-
-      return {
-        sessionId: `loyal_sess_${Math.random().toString(36).slice(2, 12)}`,
-        txSignature: sig,
-        settledAt: new Date().toISOString(),
-        privacyScore: 0.92,
-        // Echo for debug visibility in dev:
-        ...(process.env.NODE_ENV !== "production"
-          ? ({
-              _debug: {
-                recipientHint: intent.recipientHint,
-                amount: intent.amountLamports.toString(),
-                tokenMint: intent.tokenMint,
-              },
-            } as unknown as object)
-          : {}),
-      };
+/**
+ * Canonical SPL mints we route through Loyal. We ship USDC by default
+ * because it's the widest-supported stable across Loyal + MagicBlock
+ * reserves; the TipForm token picker is the entry point for others.
+ */
+export const SPL_MINTS: Record<
+  ClusterMoniker,
+  { symbol: string; address: string; decimals: number }[]
+> = {
+  mainnet: [
+    {
+      symbol: "USDC",
+      address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      decimals: 6,
     },
-  };
+  ],
+  devnet: [
+    {
+      // The mint Loyal currently uses in their devnet environment.
+      symbol: "USDC",
+      address: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      decimals: 6,
+    },
+  ],
+  testnet: [],
+  localnet: [],
+};
+
+export const NATIVE_SOL_MINT =
+  "So11111111111111111111111111111111111111112";
+
+export function isNativeSolMint(mint: string): boolean {
+  return mint === NATIVE_SOL_MINT;
 }
 
-export const loyal = createLoyalClient();
+export function isLoyalSupportedCluster(
+  cluster: ClusterMoniker
+): cluster is "mainnet" | "devnet" {
+  return cluster === "mainnet" || cluster === "devnet";
+}
+
+/** Look up an SPL token by mint for the active cluster. */
+export function splTokenFor(
+  cluster: ClusterMoniker,
+  mint: string
+):
+  | { symbol: string; address: string; decimals: number }
+  | undefined {
+  return SPL_MINTS[cluster].find((t) => t.address === mint);
+}
+
+/**
+ * Decide which settlement rail to use for a DIRECT_SEND.
+ * - SPL + supported cluster → Loyal (private).
+ * - Native SOL or unsupported cluster → native system transfer (public).
+ *
+ * Returns 'loyal' | 'native'.
+ */
+export function chooseRail(
+  cluster: ClusterMoniker,
+  tokenMint: string
+): "loyal" | "native" {
+  if (isNativeSolMint(tokenMint)) return "native";
+  if (!isLoyalSupportedCluster(cluster)) return "native";
+  if (!splTokenFor(cluster, tokenMint)) return "native";
+  return "loyal";
+}
+
+/** Base (Solana) RPC the browser should hand to Loyal. */
+export function baseRpcEndpoint(cluster: ClusterMoniker): string {
+  // Loyal needs a raw HTTPS endpoint, not our same-origin proxy — the SDK
+  // talks directly to Anchor / program accounts. Hit the public endpoint
+  // here; it works from the browser for the read flows Loyal performs.
+  if (cluster === "mainnet") return "https://api.mainnet-beta.solana.com";
+  if (cluster === "devnet") return "https://api.devnet.solana.com";
+  if (cluster === "testnet") return "https://api.testnet.solana.com";
+  return "http://localhost:8899";
+}
+
+export function perEndpoint(
+  cluster: ClusterMoniker
+): { rpc: string; ws: string } {
+  const ep = PER_ENDPOINTS[cluster];
+  if (!ep) {
+    throw new Error(
+      `Loyal PER is not available on ${cluster}; direct private sends are mainnet or devnet only.`
+    );
+  }
+  return ep;
+}
