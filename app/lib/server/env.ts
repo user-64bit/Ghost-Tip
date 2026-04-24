@@ -83,6 +83,17 @@ export interface EnvReport {
 
 let cached: EnvReport | null = null;
 
+/**
+ * Whether we're currently inside `next build` (page-data collection, SSG,
+ * etc.). Next sets NEXT_PHASE during build; during that phase NODE_ENV is
+ * already "production" but real runtime credentials aren't expected to be
+ * present. Skipping validation here keeps CI / Vercel deploys unblocked.
+ */
+function isBuildPhase(): boolean {
+  const phase = process.env.NEXT_PHASE;
+  return phase === "phase-production-build" || phase === "phase-development-build";
+}
+
 export function validateEnv(): EnvReport {
   if (cached) return cached;
 
@@ -108,11 +119,12 @@ export function validateEnv(): EnvReport {
   }
 
   // Dangerous flags are always warnings in dev; in prod, they're fatal.
-  const isProduction = process.env.NODE_ENV === "production";
+  const isRuntimeProduction =
+    process.env.NODE_ENV === "production" && !isBuildPhase();
   for (const flag of DANGER_FLAGS) {
     if (process.env[flag.key] === flag.badValue) {
       const msg = `${flag.key}=${flag.badValue} — ${flag.reason}`;
-      if (isProduction) problems.push(msg);
+      if (isRuntimeProduction) problems.push(msg);
       else warnings.push(msg);
     }
   }
@@ -134,7 +146,7 @@ export function validateEnv(): EnvReport {
       "",
     ].join("\n");
     console.error(banner);
-    if (isProduction) {
+    if (isRuntimeProduction) {
       throw new Error(
         `GhostTip refuses to start in production with the above env issues.`
       );
@@ -150,5 +162,10 @@ export function validateEnv(): EnvReport {
   return report;
 }
 
-// Run once at module import so the first server-side route hit triggers it.
-validateEnv();
+// Run once at module import. During `next build` the checks are soft
+// (warnings only) so a missing TWITTER_CLIENT_ID at build time doesn't
+// fail CI — the same module runs again at first runtime request and
+// throws there if config is still missing.
+if (!isBuildPhase()) {
+  validateEnv();
+}
