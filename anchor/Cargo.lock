@@ -1329,6 +1329,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ghosttip"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "litesvm",
+ "solana-sdk",
+]
+
+[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
