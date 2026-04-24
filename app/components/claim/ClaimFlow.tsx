@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { toast } from "sonner";
 import bs58 from "bs58";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -9,6 +9,7 @@ import useSWR from "swr";
 import { CountdownTimer } from "../ui/CountdownTimer";
 import { Button } from "../ui/Button";
 import { GhostWalletButton } from "../ui/GhostWalletButton";
+import { GhostTipGlyph } from "../ui/GhostTipLogo";
 import { useWallet } from "../../lib/wallet/context";
 import { lamportsToSolString } from "../../lib/lamports";
 import { useClaimSessionStore } from "../../store/sessionStore";
@@ -486,41 +487,163 @@ function ClaimSuccess({
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(circle at 50% -10%, rgba(78,205,196,0.35), transparent 55%)",
+            "radial-gradient(circle at 50% -10%, rgba(78,205,196,0.4), transparent 55%), radial-gradient(circle at 20% 100%, rgba(124,106,247,0.22), transparent 60%)",
         }}
       />
-      <motion.div
-        initial={{ scale: 0.6, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 200, damping: 18 }}
-        className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(78,205,196,0.15)]"
+
+      <ConfettiBurst />
+
+      <div className="relative mx-auto h-20 w-20">
+        {/* Pulsing ring */}
+        <motion.span
+          aria-hidden
+          initial={{ scale: 0.6, opacity: 0.6 }}
+          animate={{ scale: 2.2, opacity: 0 }}
+          transition={{
+            duration: 1.6,
+            repeat: 1,
+            ease: "easeOut",
+          }}
+          className="absolute inset-0 rounded-full bg-[rgba(78,205,196,0.25)]"
+        />
+        <motion.div
+          initial={{ scale: 0.5, opacity: 0, rotate: -8 }}
+          animate={{ scale: 1, opacity: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 180, damping: 16, delay: 0.1 }}
+          className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-[rgba(78,205,196,0.12)] shadow-[0_0_0_1px_rgba(78,205,196,0.35),0_30px_60px_-20px_rgba(78,205,196,0.55)]"
+        >
+          <motion.div
+            animate={{ y: [0, -3, 0] }}
+            transition={{
+              duration: 3,
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: 0.6,
+            }}
+          >
+            <GhostTipGlyph size={36} />
+          </motion.div>
+          <motion.svg
+            viewBox="0 0 24 24"
+            width="22"
+            height="22"
+            fill="none"
+            className="absolute -bottom-1 -right-1 rounded-full bg-background p-0.5"
+            initial={{ scale: 0, rotate: -20 }}
+            animate={{ scale: 1, rotate: 0 }}
+            transition={{ delay: 0.5, type: "spring", stiffness: 260, damping: 14 }}
+          >
+            <circle cx="12" cy="12" r="10" fill="#4ECDC4" />
+            <motion.path
+              d="M17 9 11 15l-3-3"
+              stroke="#0A0A0F"
+              strokeWidth="2.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: 1 }}
+              transition={{ duration: 0.35, delay: 0.65 }}
+            />
+          </motion.svg>
+        </motion.div>
+      </div>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.35, duration: 0.35 }}
+        className="relative mt-6 text-xs uppercase tracking-[0.22em] text-subtle"
       >
-        <svg viewBox="0 0 24 24" width="28" height="28" fill="none">
-          <motion.path
-            d="M20 6 9 17l-5-5"
-            stroke="#4ECDC4"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            initial={{ pathLength: 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: 0.45, delay: 0.1 }}
-          />
-        </svg>
-      </motion.div>
-      <p className="relative mt-5 text-xs uppercase tracking-[0.2em] text-subtle">
         Claimed
-      </p>
-      <p className="relative mt-2 font-mono text-4xl font-semibold tabular-nums">
-        {sol} <span className="text-lg font-normal text-muted">SOL</span>
-      </p>
-      <p className="relative mt-2 text-sm text-muted">
+      </motion.p>
+      <motion.p
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4, duration: 0.4 }}
+        className="relative mt-2 font-mono text-5xl font-semibold tabular-nums"
+      >
+        {sol} <span className="text-xl font-normal text-muted">SOL</span>
+      </motion.p>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.5, duration: 0.35 }}
+        className="relative mt-2 text-sm text-muted"
+      >
         Funds are in your wallet now.
-      </p>
-      <p className="relative mt-4 break-all font-mono text-[10px] text-subtle">
-        tx: {txSignature}
-      </p>
+      </motion.p>
+
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.65, duration: 0.35 }}
+        className="relative mt-5 break-all font-mono text-[10px] text-subtle"
+      >
+        tx · {txSignature.slice(0, 18)}…{txSignature.slice(-6)}
+      </motion.p>
     </motion.div>
+  );
+}
+
+/**
+ * Small confetti-style particle burst on claim. 12 particles radiating
+ * outward with randomised velocity + rotation. Violet/teal mix to stay
+ * on-brand; skipped entirely under prefers-reduced-motion.
+ */
+function ConfettiBurst() {
+  const reduce = useReducedMotion();
+  const particles = useMemo(() => {
+    // Deterministic-ish layout so SSR matches; keyed off index.
+    return Array.from({ length: 14 }).map((_, i) => {
+      const angle = (i / 14) * Math.PI * 2;
+      const dist = 90 + (i % 3) * 18;
+      return {
+        x: Math.cos(angle) * dist,
+        y: Math.sin(angle) * dist,
+        color:
+          i % 3 === 0
+            ? "#4ECDC4"
+            : i % 3 === 1
+              ? "#7C6AF7"
+              : "#B6A9FF",
+        rot: angle * 57 + (i % 2 ? 40 : -40),
+        size: 5 + (i % 3) * 2,
+      };
+    });
+  }, []);
+
+  if (reduce) return null;
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute left-1/2 top-[72px] -translate-x-1/2"
+    >
+      {particles.map((p, i) => (
+        <motion.span
+          key={i}
+          initial={{ x: 0, y: 0, opacity: 0, rotate: 0, scale: 0.6 }}
+          animate={{
+            x: p.x,
+            y: p.y,
+            opacity: [0, 1, 0],
+            rotate: p.rot,
+            scale: [0.6, 1, 0.8],
+          }}
+          transition={{
+            duration: 1.1,
+            delay: 0.2 + (i % 5) * 0.03,
+            ease: [0.2, 0.8, 0.2, 1],
+          }}
+          className="absolute left-0 top-0 inline-block rounded-[2px]"
+          style={{
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            boxShadow: `0 0 10px ${p.color}`,
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
