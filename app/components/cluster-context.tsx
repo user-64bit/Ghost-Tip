@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   useCallback,
   type ReactNode,
@@ -29,20 +30,22 @@ function defaultCluster(): ClusterMoniker {
   return "devnet";
 }
 
-function getInitialCluster(): ClusterMoniker {
-  if (typeof window === "undefined") return defaultCluster();
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored && CLUSTERS.includes(stored as ClusterMoniker)) {
-    return stored as ClusterMoniker;
-  }
-  return defaultCluster();
-}
-
 export { CLUSTERS };
 
 export function ClusterProvider({ children }: { children: ReactNode }) {
-  const [cluster, setClusterState] =
-    useState<ClusterMoniker>(getInitialCluster);
+  // Start from the env-derived default on both server and first client
+  // render so the initial markup matches. localStorage is only read after
+  // mount (below) — otherwise server HTML would embed `defaultCluster()`
+  // while the client rehydrates with whatever the user last picked, and
+  // React would flag a hydration mismatch.
+  const [cluster, setClusterState] = useState<ClusterMoniker>(defaultCluster);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored && CLUSTERS.includes(stored as ClusterMoniker)) {
+      setClusterState(stored as ClusterMoniker);
+    }
+  }, []);
 
   const setCluster = useCallback((c: ClusterMoniker) => {
     setClusterState(c);
