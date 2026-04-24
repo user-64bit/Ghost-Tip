@@ -23,11 +23,11 @@ import type {
   DirectSendCreateTipResponse,
   EscrowCreateTipResponse,
 } from "../../types/tip";
-import { useRouter } from "next/navigation";
 import { parseTransactionError } from "../../lib/errors";
 import { useCluster } from "../cluster-context";
 import { fetchJson, ApiCallError } from "../../lib/fetcher";
 import { SPL_MINTS, isLoyalSupportedCluster } from "../../lib/loyal";
+import { SendConfirmation } from "./SendConfirmation";
 // Loyal + web3.js + spl-token are lazy-loaded inside submitDirect so the
 // send page and its SSR prerender don't pull a 500KB bundle they may
 // never need. Only users hitting the direct private-send path load them.
@@ -75,13 +75,23 @@ interface ColdResult {
 type ResolveResult = WarmResult | ColdResult;
 
 export function TipForm() {
-  const router = useRouter();
   const { wallet, signer, status: walletStatus } = useWallet();
   const { send, isSending } = useSendTransaction();
   const { cluster } = useCluster();
   const address = wallet?.account.address;
   const { lamports, error: balanceError } = useBalance(address);
   const addTip = useTipStore((s) => s.addTip);
+
+  // When set, the form is replaced by the reveal screen. Kept local so
+  // a tab refresh falls back to the form (the tip is still in the Zustand
+  // store and surfaced on `/` via the LastTipCard).
+  const [confirmation, setConfirmation] = useState<null | {
+    tip: CreateTipResponse;
+    amountRaw: string;
+    tokenSymbol: string;
+    tokenDecimals: number;
+    recipientHandle: string;
+  }>(null);
 
   const tokens = useMemo(() => availableTokens(cluster), [cluster]);
   const [tokenMint, setTokenMint] = useState<string>(tokens[0].mint);
@@ -276,8 +286,13 @@ export function TipForm() {
       txSignature: signature,
       status: "CLAIMABLE",
     });
-    toast.success("Tip escrowed. Claim link is live.");
-    router.push(`/tip/${tip.tipIntentId}`);
+    setConfirmation({
+      tip,
+      amountRaw: amountRaw!.toString(),
+      tokenSymbol: token.symbol,
+      tokenDecimals: token.decimals,
+      recipientHandle: normalisedHandle,
+    });
   }
 
   async function submitDirect(args: {
@@ -325,10 +340,13 @@ export function TipForm() {
         txSignature: signature,
         status: "CLAIMED",
       });
-      toast.success(
-        `${amount} SOL sent to @${normalisedHandle} · direct transfer.`
-      );
-      router.push(`/tip/${tip.tipIntentId}`);
+      setConfirmation({
+        tip,
+        amountRaw: amountRaw!.toString(),
+        tokenSymbol: token.symbol,
+        tokenDecimals: token.decimals,
+        recipientHandle: normalisedHandle,
+      });
       return;
     }
 
@@ -405,12 +423,18 @@ export function TipForm() {
           txSignature: result.transferSignature,
           status: "CLAIMED",
         });
-        toast.success(
-          result.shieldedFirstTime
-            ? `First-time shield done. ${amount} ${token.symbol} sent privately.`
-            : `${amount} ${token.symbol} sent privately to @${normalisedHandle}.`
-        );
-        router.push(`/tip/${tip.tipIntentId}`);
+        if (result.shieldedFirstTime) {
+          toast.success(
+            `First-time shield done — ${amount} ${token.symbol} now in flight.`
+          );
+        }
+        setConfirmation({
+          tip,
+          amountRaw: amountRaw!.toString(),
+          tokenSymbol: token.symbol,
+          tokenDecimals: token.decimals,
+          recipientHandle: normalisedHandle,
+        });
       } catch (err) {
         console.error(err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -420,6 +444,24 @@ export function TipForm() {
     }
 
     toast.error("Don't know how to settle this direct send.");
+  }
+
+  if (confirmation) {
+    return (
+      <SendConfirmation
+        tip={confirmation.tip}
+        recipientHandle={confirmation.recipientHandle}
+        tokenSymbol={confirmation.tokenSymbol}
+        tokenDecimals={confirmation.tokenDecimals}
+        amountRaw={confirmation.amountRaw}
+        onSendAnother={() => {
+          setConfirmation(null);
+          setHandle("");
+          setAmount("");
+          setMemo("");
+        }}
+      />
+    );
   }
 
   return (
