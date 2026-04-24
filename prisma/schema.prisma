@@ -1,0 +1,100 @@
+// GhostTip — Prisma schema
+// See GhostTip_Full_Spec.md §12 (Data Models).
+// Enums map to VARCHAR(20) in Postgres (string-backed for forward compat).
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                  TipIntent                                 */
+/* -------------------------------------------------------------------------- */
+model TipIntent {
+  id                        String   @id @default(uuid()) @db.Uuid
+  senderWallet              String   @map("sender_wallet") @db.VarChar(44)
+  recipientHandleType       String   @map("recipient_handle_type") @db.VarChar(20)
+  recipientHandleValue      String   @map("recipient_handle_value") @db.VarChar(255)
+  resolvedRecipientWallet   String?  @map("resolved_recipient_wallet") @db.VarChar(44)
+  amount                    BigInt
+  tokenMint                 String   @map("token_mint") @db.VarChar(44)
+  memo                      String?
+  status                    String   @default("DRAFT") @db.VarChar(20)
+  expiryAt                  DateTime @map("expiry_at") @db.Timestamptz
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  claimLinkId               String?  @unique @map("claim_link_id") @db.Uuid
+  claimLink                 ClaimLink? @relation(fields: [claimLinkId], references: [id])
+  txSignature               String?  @map("tx_signature") @db.VarChar(128)
+  refundTxSignature         String?  @map("refund_tx_signature") @db.VarChar(128)
+  claimTxSignature          String?  @map("claim_tx_signature") @db.VarChar(128)
+  claimedAt                 DateTime? @map("claimed_at") @db.Timestamptz
+  refundedAt                DateTime? @map("refunded_at") @db.Timestamptz
+  cancelledAt               DateTime? @map("cancelled_at") @db.Timestamptz
+  tipEscrowPda              String?  @map("tip_escrow_pda") @db.VarChar(44)
+  tipIdBytes                String   @unique @map("tip_id_bytes") @db.VarChar(64) // hex of [u8;32]
+  errorCode                 String?  @map("error_code") @db.VarChar(50)
+  errorMessage              String?  @map("error_message")
+
+  @@index([status])
+  @@index([expiryAt])
+  @@index([senderWallet])
+  @@map("tip_intent")
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                IdentityMap                                 */
+/* -------------------------------------------------------------------------- */
+model IdentityMap {
+  id                 String    @id @default(uuid()) @db.Uuid
+  handleType         String    @map("handle_type") @db.VarChar(20)
+  handleValue        String    @map("handle_value") @db.VarChar(255)
+  walletAddress      String    @map("wallet_address") @db.VarChar(44)
+  verifiedAt         DateTime  @map("verified_at") @db.Timestamptz
+  verificationMethod String    @map("verification_method") @db.VarChar(50)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz
+
+  @@unique([handleType, handleValue])
+  @@index([walletAddress])
+  @@map("identity_map")
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 ClaimLink                                  */
+/* -------------------------------------------------------------------------- */
+model ClaimLink {
+  id                    String     @id @default(uuid()) @db.Uuid
+  secretTokenHash       String     @unique @map("secret_token_hash") @db.VarChar(128)
+  intendedHandleType    String     @map("intended_handle_type") @db.VarChar(20)
+  intendedHandleValue   String     @map("intended_handle_value") @db.VarChar(255)
+  createdAt             DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  expiresAt             DateTime   @map("expires_at") @db.Timestamptz
+  claimedAt             DateTime?  @map("claimed_at") @db.Timestamptz
+  claimedByWallet       String?    @map("claimed_by_wallet") @db.VarChar(44)
+  revokedAt             DateTime?  @map("revoked_at") @db.Timestamptz
+  tipIntent             TipIntent?
+
+  @@map("claim_link")
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 AuditEvent                                 */
+/* -------------------------------------------------------------------------- */
+model AuditEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  actor        String?  @db.VarChar(255)
+  eventType    String   @map("event_type") @db.VarChar(50)
+  refId        String?  @map("ref_id") @db.Uuid
+  metadataJson Json?    @map("metadata_json")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([eventType])
+  @@index([refId])
+  @@index([createdAt])
+  @@map("audit_event")
+}
