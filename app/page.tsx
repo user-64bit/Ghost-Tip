@@ -2,24 +2,32 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { useMemo } from "react";
 import { PageWrapper } from "./components/layout/PageWrapper";
 import { TipForm } from "./components/tip/TipForm";
 import { useTipStore } from "./store/tipStore";
 import { useCluster } from "./components/cluster-context";
+import { useMounted } from "./lib/hooks/use-mounted";
 import { Badge, statusBadgeLabel, statusBadgeTone } from "./components/ui/Badge";
 import type { TipStatus } from "./types/tip";
 
 export default function Home() {
   const { cluster } = useCluster();
-  // Only surface the "last tip" shortcut when it belongs to the active
-  // cluster — otherwise a mainnet user sees a devnet card (or vice versa).
-  const lastTip = useTipStore((s) => {
-    if (!s.lastTipId) return null;
-    const tip = s.tips.find((t) => t.tipIntentId === s.lastTipId);
-    if (!tip) return null;
-    if ((tip.cluster ?? cluster) !== cluster) return null;
-    return tip;
-  });
+  // Zustand's persist middleware hydrates synchronously on the client but
+  // starts empty on the server — reading `lastTipId` directly in render
+  // would diverge between the two and break hydration. Gate the read
+  // behind `useMounted` so SSR and the first client render both show no
+  // card, and the post-mount render populates it.
+  const mounted = useMounted();
+  const tips = useTipStore((s) => s.tips);
+  const lastTipId = useTipStore((s) => s.lastTipId);
+  const lastTip = useMemo(() => {
+    if (!mounted || !lastTipId) return null;
+    const t = tips.find((x) => x.tipIntentId === lastTipId);
+    if (!t) return null;
+    if ((t.cluster ?? cluster) !== cluster) return null;
+    return t;
+  }, [mounted, tips, lastTipId, cluster]);
 
   return (
     <PageWrapper narrow>
