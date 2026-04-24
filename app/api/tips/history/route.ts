@@ -35,10 +35,15 @@ export const GET = handler(async (req) => {
         id: t.id,
         senderWallet: t.senderWallet,
         cluster: t.cluster,
+        mode: t.mode,
+        rail: t.rail,
         recipientHandleType: t.recipientHandleType,
         recipientHandleValue: t.recipientHandleValue,
+        resolvedRecipientWallet: t.resolvedRecipientWallet,
         amount: t.amount.toString(),
         tokenMint: t.tokenMint,
+        tokenSymbol: t.tokenSymbol,
+        tokenDecimals: t.tokenDecimals,
         memo: t.memo,
         status: t.status,
         expiryAt: t.expiryAt.toISOString(),
@@ -47,6 +52,7 @@ export const GET = handler(async (req) => {
         refundedAt: t.refundedAt?.toISOString() ?? null,
         cancelledAt: t.cancelledAt?.toISOString() ?? null,
         txSignature: t.txSignature,
+        claimTxSignature: t.claimTxSignature,
       }))
     )
   );
