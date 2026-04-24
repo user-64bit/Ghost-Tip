@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
 import useSWR from "swr";
 import { motion } from "framer-motion";
@@ -8,6 +8,7 @@ import { PageWrapper } from "../../components/layout/PageWrapper";
 import { TipStatusCard } from "../../components/tip/TipStatusCard";
 import { useTipStore } from "../../store/tipStore";
 import { useWallet } from "../../lib/wallet/context";
+import { useMounted } from "../../lib/hooks/use-mounted";
 import { fetchJson } from "../../lib/fetcher";
 import type { TipIntent } from "../../types/tip";
 
@@ -17,8 +18,15 @@ export default function TipStatusPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
   const { wallet } = useWallet();
-  const stored = useTipStore((s) =>
-    id ? s.tips.find((t) => t.tipIntentId === id) : undefined
+  // Same hydration-gate pattern as /profile + / — SSR has no localStorage
+  // tips, but Zustand rehydrates synchronously on the client's first
+  // render, so we defer the store read to after mount.
+  const mounted = useMounted();
+  const tips = useTipStore((s) => s.tips);
+  const stored = useMemo(
+    () =>
+      mounted && id ? tips.find((t) => t.tipIntentId === id) : undefined,
+    [mounted, tips, id]
   );
   const updateTip = useTipStore((s) => s.updateTip);
 
