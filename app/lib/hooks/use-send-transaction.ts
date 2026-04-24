@@ -2,48 +2,59 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useSWRConfig } from "swr";
-import type { Instruction } from "@solana/kit";
-import { createClient } from "@solana/kit-client-rpc";
 import {
-  findSetComputeUnitLimitInstructionIndexAndUnits,
-  getSetComputeUnitLimitInstruction,
-} from "@solana-program/compute-budget";
+  appendTransactionMessageInstructions,
+  createSolanaRpc,
+  createSolanaRpcSubscriptions,
+  createTransactionMessage,
+  getSignatureFromTransaction,
+  pipe,
+  sendAndConfirmTransactionFactory,
+  setTransactionMessageFeePayerSigner,
+  setTransactionMessageLifetimeUsingBlockhash,
+  signTransactionMessageWithSigners,
+  type Instruction,
+} from "@solana/kit";
+import { getSetComputeUnitLimitInstruction } from "@solana-program/compute-budget";
 import { useWallet } from "../wallet/context";
 import { useCluster } from "../../components/cluster-context";
 import { getClusterUrl, getClusterWsConfig } from "../solana-client";
 
 /**
- * Default compute unit ceiling for client-initiated GhostTip transactions.
+ * Compute unit ceiling applied to every client-submitted transaction.
  *
- * The kit executor's default behaviour is to simulate the transaction and
- * set the CU limit to `estimatedUnits * 1.1` — a 10 % buffer. For simple
- * transactions (a plain System Program transfer consumes ~150 CU) that
- * margin can be eaten by real-slot drift versus the simulation slot and
- * the tx fails with "Computational budget exceeded (instruction #N)" —
- * which was the regression reported with "0.1 SOL → warm recipient".
+ * Prior versions leaned on `@solana/kit-client-rpc`'s planner, which
+ * auto-simulates + estimates CU and adds only a 10 % buffer. Two failure
+ * modes we saw on devnet:
+ *   1. "Computational budget exceeded (instruction #N)" — the 10 % margin
+ *      was eaten by slot-to-slot runtime drift vs the simulation slot.
+ *   2. "Failed to estimate the compute unit consumption …" — the
+ *      estimation simulation itself failed for unrelated reasons (ATA not
+ *      yet on-chain at the simulation slot, recent blockhash races, etc).
  *
- * Setting an explicit, comfortable ceiling makes the executor skip its
- * estimator entirely (see `needsComputeUnitEstimation` in
- * `@solana/kit-plugin-rpc` — it only estimates when no limit is set, or
- * when the set value is the provisory 0 or the max 1_400_000).
- *
- * 400_000 is more than enough for every ix GhostTip sends client-side:
- *   - System Program Transfer    ≈ 150 CU
- *   - Anchor `deposit_tip`       ≈ 8–12 k CU (init + system CPI)
- *   - Anchor `cancel_tip`        ≈ 5 k CU
- * With no priority fee configured, setting 400_000 costs the user nothing
- * and gives the validator plenty of headroom for future runtime changes.
+ * Both go away when we set an explicit ceiling and skip the estimator
+ * altogether. 400_000 is well above anything we emit client-side:
+ *   System Transfer     ≈ 150 CU
+ *   Anchor deposit_tip  ≈ 8–12 k CU (account init + system CPI)
+ *   Anchor cancel_tip   ≈ 5 k CU
+ * With no priority fee configured, a higher ceiling costs the user
+ * nothing — it just raises the transaction's CU cap.
  */
 const DEFAULT_COMPUTE_UNIT_LIMIT = 400_000;
 
 export interface SendOptions {
   instructions: readonly Instruction[];
   /**
-   * Override the default CU ceiling. Callers can opt out by passing
-   * a value that matches the executor's "needs estimation" signal
-   * (0 or 1_400_000), but there's rarely a reason to.
+   * Override the default CU ceiling. Pass `null` to skip the prepend
+   * (useful when the caller has already prepared their own budget ixs).
    */
-  computeUnits?: number;
+  computeUnits?: number | null;
+  /**
+   * `true` asks the validator to bypass preflight simulation. We default
+   * to `false` so surfaces like "insufficient balance" come back with a
+   * readable error instead of `TransactionExpiredBlockheightExceededError`.
+   */
+  skipPreflight?: boolean;
 }
 
 export function useSendTransaction() {
@@ -52,82 +63,80 @@ export function useSendTransaction() {
   const { mutate } = useSWRConfig();
   const [isSending, setIsSending] = useState(false);
 
-  const txClient = useMemo(
-    () =>
-      signer
-        ? createClient({
-            url: getClusterUrl(cluster),
-            rpcSubscriptionsConfig: getClusterWsConfig(cluster),
-            payer: signer,
-          })
-        : null,
-    [cluster, signer]
-  );
+  // rpc / rpcSubscriptions are light objects but keying them on the
+  // cluster keeps the instances stable across renders and lets kit's
+  // subscriptions dedupe their upstream connections.
+  const rpcBundle = useMemo(() => {
+    const url = getClusterUrl(cluster);
+    const wsCfg = getClusterWsConfig(cluster);
+    const wsUrl = wsCfg?.url ?? toWs(url);
+    return {
+      rpc: createSolanaRpc(url),
+      rpcSubscriptions: createSolanaRpcSubscriptions(wsUrl),
+    };
+  }, [cluster]);
 
   const send = useCallback(
-    async ({ instructions, computeUnits }: SendOptions) => {
-      if (!txClient) throw new Error("Wallet not connected");
+    async ({ instructions, computeUnits, skipPreflight }: SendOptions) => {
+      if (!signer) throw new Error("Wallet not connected");
 
       setIsSending(true);
       try {
-        const withBudget = ensureComputeUnitLimit(
-          instructions,
-          computeUnits ?? DEFAULT_COMPUTE_UNIT_LIMIT
+        const ixs: Instruction[] = [...instructions];
+        const withBudget =
+          computeUnits === null
+            ? ixs
+            : [
+                getSetComputeUnitLimitInstruction({
+                  units: computeUnits ?? DEFAULT_COMPUTE_UNIT_LIMIT,
+                }),
+                ...ixs,
+              ];
+
+        const { rpc, rpcSubscriptions } = rpcBundle;
+        const { value: latestBlockhash } = await rpc
+          .getLatestBlockhash({ commitment: "confirmed" })
+          .send();
+
+        const message = pipe(
+          createTransactionMessage({ version: 0 }),
+          (m) => setTransactionMessageFeePayerSigner(signer, m),
+          (m) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, m),
+          (m) => appendTransactionMessageInstructions(withBudget, m)
         );
-        const result = await txClient.sendTransaction(withBudget);
+
+        const signedTx = await signTransactionMessageWithSigners(message);
+        const signature = getSignatureFromTransaction(signedTx);
+
+        const sendAndConfirm = sendAndConfirmTransactionFactory({
+          rpc,
+          rpcSubscriptions,
+        });
+        // `signTransactionMessageWithSigners` widens the lifetime type to a
+        // union; we built the message with a blockhash lifetime so the cast
+        // is safe. Mirrors the server-side authority submission helper.
+        await sendAndConfirm(
+          signedTx as Parameters<typeof sendAndConfirm>[0],
+          {
+            commitment: "confirmed",
+            skipPreflight: skipPreflight ?? false,
+          }
+        );
+
+        // Nudge the balance SWR key so the wallet button reflects the spend.
         mutate((key: unknown) => Array.isArray(key) && key[0] === "balance");
-        return result.context.signature;
+
+        return signature;
       } finally {
         setIsSending(false);
       }
     },
-    [txClient, mutate]
+    [signer, rpcBundle, mutate]
   );
 
   return { send, isSending };
 }
 
-/**
- * Prepend a `SetComputeUnitLimit` instruction iff the caller hasn't already
- * provided one. We use the generated builder from `@solana-program/compute-
- * budget` so the instruction is byte-identical to what kit itself emits.
- *
- * Implementation note: the kit planner's `findSetComputeUnitLimitInstruction
- * IndexAndUnits` works on a `TransactionMessage`, not on a raw instruction
- * array — so we do a cheap program-address scan here instead.
- */
-function ensureComputeUnitLimit(
-  instructions: readonly Instruction[],
-  units: number
-): Instruction[] {
-  if (hasComputeUnitLimit(instructions)) {
-    return [...instructions];
-  }
-  return [getSetComputeUnitLimitInstruction({ units }), ...instructions];
+function toWs(url: string): string {
+  return url.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
 }
-
-// Compute-budget program ID. Matches the constant the kit planner uses via
-// `findSetComputeUnitLimitInstructionIndexAndUnits`; kept inline so we don't
-// have to import the whole module for one string compare.
-const COMPUTE_BUDGET_PROGRAM_ID =
-  "ComputeBudget111111111111111111111111111111";
-// Discriminator for SetComputeUnitLimit (u8 variant index `2`).
-const SET_COMPUTE_UNIT_LIMIT_DISC = 2;
-
-function hasComputeUnitLimit(instructions: readonly Instruction[]): boolean {
-  for (const ix of instructions) {
-    if (
-      (ix.programAddress as string) === COMPUTE_BUDGET_PROGRAM_ID &&
-      ix.data &&
-      ix.data.length > 0 &&
-      ix.data[0] === SET_COMPUTE_UNIT_LIMIT_DISC
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-// Keep the kit helper reachable in case callers want to introspect an
-// already-planned message without re-running the logic above.
-export { findSetComputeUnitLimitInstructionIndexAndUnits };
