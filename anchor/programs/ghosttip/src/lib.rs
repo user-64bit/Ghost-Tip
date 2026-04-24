@@ -21,17 +21,9 @@ pub mod ghosttip {
             GhostTipError::InvalidExpiry
         );
 
-        let escrow = &mut ctx.accounts.tip_escrow;
-        escrow.tip_id = tip_id;
-        escrow.sender = ctx.accounts.sender.key();
-        escrow.recipient = Pubkey::default();
-        escrow.amount = amount;
-        escrow.token_mint = Pubkey::default(); // system = native SOL
-        escrow.expiry_at = expiry_at;
-        escrow.status = TipStatus::Claimable;
-        escrow.authority = ctx.accounts.authority_config.authority;
-        escrow.bump = ctx.bumps.tip_escrow;
-        escrow.created_at = clock.unix_timestamp;
+        let sender_key = ctx.accounts.sender.key();
+        let authority_key = ctx.accounts.authority_config.authority;
+        let escrow_bump = ctx.bumps.tip_escrow;
 
         transfer(
             CpiContext::new(
@@ -44,9 +36,21 @@ pub mod ghosttip {
             amount,
         )?;
 
+        let escrow = &mut ctx.accounts.tip_escrow;
+        escrow.tip_id = tip_id;
+        escrow.sender = sender_key;
+        escrow.recipient = Pubkey::default();
+        escrow.amount = amount;
+        escrow.token_mint = Pubkey::default(); // system = native SOL
+        escrow.expiry_at = expiry_at;
+        escrow.status = TipStatus::Claimable;
+        escrow.authority = authority_key;
+        escrow.bump = escrow_bump;
+        escrow.created_at = clock.unix_timestamp;
+
         emit!(TipDeposited {
             tip_id,
-            sender: escrow.sender,
+            sender: sender_key,
             amount,
             expiry_at,
         });
@@ -59,15 +63,13 @@ pub mod ghosttip {
         _tip_id: [u8; 32],
         recipient: Pubkey,
     ) -> Result<()> {
-        let escrow = &mut ctx.accounts.tip_escrow;
-
         require!(
-            escrow.status == TipStatus::Claimable,
+            ctx.accounts.tip_escrow.status == TipStatus::Claimable,
             GhostTipError::InvalidStatus
         );
         require_keys_eq!(
             ctx.accounts.authority.key(),
-            escrow.authority,
+            ctx.accounts.tip_escrow.authority,
             GhostTipError::UnauthorizedClaimer
         );
         require_keys_eq!(
@@ -76,7 +78,8 @@ pub mod ghosttip {
             GhostTipError::UnauthorizedClaimer
         );
 
-        let amount = escrow.amount;
+        let amount = ctx.accounts.tip_escrow.amount;
+        let tip_id = ctx.accounts.tip_escrow.tip_id;
         require!(
             ctx.accounts.tip_escrow.to_account_info().lamports() >= amount,
             GhostTipError::InsufficientFunds
@@ -94,11 +97,12 @@ pub mod ghosttip {
             .to_account_info()
             .try_borrow_mut_lamports()? += amount;
 
+        let escrow = &mut ctx.accounts.tip_escrow;
         escrow.recipient = recipient;
         escrow.status = TipStatus::Claimed;
 
         emit!(TipClaimed {
-            tip_id: escrow.tip_id,
+            tip_id,
             recipient,
             amount,
         });
@@ -107,30 +111,30 @@ pub mod ghosttip {
     }
 
     pub fn refund_tip(ctx: Context<RefundTip>, _tip_id: [u8; 32]) -> Result<()> {
-        let escrow = &mut ctx.accounts.tip_escrow;
-
         require!(
-            escrow.status == TipStatus::Claimable,
+            ctx.accounts.tip_escrow.status == TipStatus::Claimable,
             GhostTipError::InvalidStatus
         );
         require_keys_eq!(
             ctx.accounts.authority.key(),
-            escrow.authority,
+            ctx.accounts.tip_escrow.authority,
             GhostTipError::UnauthorizedClaimer
         );
         require_keys_eq!(
             ctx.accounts.sender.key(),
-            escrow.sender,
+            ctx.accounts.tip_escrow.sender,
             GhostTipError::UnauthorizedClaimer
         );
 
         let clock = Clock::get()?;
         require!(
-            clock.unix_timestamp >= escrow.expiry_at,
+            clock.unix_timestamp >= ctx.accounts.tip_escrow.expiry_at,
             GhostTipError::NotExpiredYet
         );
 
-        let amount = escrow.amount;
+        let amount = ctx.accounts.tip_escrow.amount;
+        let tip_id = ctx.accounts.tip_escrow.tip_id;
+        let sender_key = ctx.accounts.tip_escrow.sender;
         require!(
             ctx.accounts.tip_escrow.to_account_info().lamports() >= amount,
             GhostTipError::InsufficientFunds
@@ -147,11 +151,11 @@ pub mod ghosttip {
             .to_account_info()
             .try_borrow_mut_lamports()? += amount;
 
-        escrow.status = TipStatus::Refunded;
+        ctx.accounts.tip_escrow.status = TipStatus::Refunded;
 
         emit!(TipRefunded {
-            tip_id: escrow.tip_id,
-            sender: escrow.sender,
+            tip_id,
+            sender: sender_key,
             amount,
         });
 
@@ -159,19 +163,19 @@ pub mod ghosttip {
     }
 
     pub fn cancel_tip(ctx: Context<CancelTip>, _tip_id: [u8; 32]) -> Result<()> {
-        let escrow = &mut ctx.accounts.tip_escrow;
-
         require!(
-            escrow.status == TipStatus::Claimable,
+            ctx.accounts.tip_escrow.status == TipStatus::Claimable,
             GhostTipError::InvalidStatus
         );
         require_keys_eq!(
             ctx.accounts.sender.key(),
-            escrow.sender,
+            ctx.accounts.tip_escrow.sender,
             GhostTipError::UnauthorizedClaimer
         );
 
-        let amount = escrow.amount;
+        let amount = ctx.accounts.tip_escrow.amount;
+        let tip_id = ctx.accounts.tip_escrow.tip_id;
+        let sender_key = ctx.accounts.tip_escrow.sender;
         require!(
             ctx.accounts.tip_escrow.to_account_info().lamports() >= amount,
             GhostTipError::InsufficientFunds
@@ -188,11 +192,11 @@ pub mod ghosttip {
             .to_account_info()
             .try_borrow_mut_lamports()? += amount;
 
-        escrow.status = TipStatus::Cancelled;
+        ctx.accounts.tip_escrow.status = TipStatus::Cancelled;
 
         emit!(TipCancelled {
-            tip_id: escrow.tip_id,
-            sender: escrow.sender,
+            tip_id,
+            sender: sender_key,
             amount,
         });
 
