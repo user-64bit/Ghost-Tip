@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import { PageWrapper } from "../components/layout/PageWrapper";
 import { useWallet } from "../lib/wallet/context";
 import { useTipStore } from "../store/tipStore";
 import { useCluster } from "../components/cluster-context";
+import { useMounted } from "../lib/hooks/use-mounted";
 import { Badge, statusBadgeLabel, statusBadgeTone } from "../components/ui/Badge";
 import { lamportsToSolString } from "../lib/lamports";
 import { fetchJson } from "../lib/fetcher";
@@ -84,8 +85,21 @@ export default function ProfilePage() {
     receivedFetcher,
     { refreshInterval: 10_000 }
   );
-  const storedTips = useTipStore((s) =>
-    s.tips.filter((t) => (t.cluster ?? cluster) === cluster)
+
+  // Reading the full tips array keeps the selector output reference-stable
+  // across renders; filtering in a useMemo yields a new array only when the
+  // underlying list or the active cluster changes. The previous inline
+  // `s.tips.filter(...)` returned a fresh array on every getSnapshot call,
+  // which Zustand's useSyncExternalStore flagged as an unstable snapshot
+  // and which then ran React into "Maximum update depth exceeded".
+  const mounted = useMounted();
+  const allTips = useTipStore((s) => s.tips);
+  const storedTips = useMemo(
+    () =>
+      mounted
+        ? allTips.filter((t) => (t.cluster ?? cluster) === cluster)
+        : [],
+    [mounted, allTips, cluster]
   );
 
   return (
