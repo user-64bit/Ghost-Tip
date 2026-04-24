@@ -8,7 +8,12 @@ import { TipForm } from "./components/tip/TipForm";
 import { useTipStore } from "./store/tipStore";
 import { useCluster } from "./components/cluster-context";
 import { useMounted } from "./lib/hooks/use-mounted";
-import { Badge, statusBadgeLabel, statusBadgeTone } from "./components/ui/Badge";
+import {
+  Badge,
+  statusBadgeIcon,
+  statusBadgeLabel,
+  statusBadgeTone,
+} from "./components/ui/Badge";
 import type { TipStatus } from "./types/tip";
 
 export default function Home() {
@@ -96,7 +101,10 @@ function LastTipCard({
         className="group flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 transition hover:border-border-strong"
       >
         <div className="flex items-center gap-3">
-          <Badge tone={statusBadgeTone(status)}>{statusBadgeLabel(status)}</Badge>
+          <Badge tone={statusBadgeTone(status)}>
+            {statusBadgeIcon(status)}
+            {statusBadgeLabel(status)}
+          </Badge>
           <div>
             <p className="text-sm font-medium">
               Last tip to <span className="font-mono">@{tip.recipientHandle}</span>

@@ -6,7 +6,12 @@ import { toast } from "sonner";
 import type { Address } from "@solana/kit";
 import { CopyButton } from "../ui/CopyButton";
 import { CountdownTimer } from "../ui/CountdownTimer";
-import { Badge, statusBadgeLabel, statusBadgeTone } from "../ui/Badge";
+import {
+  Badge,
+  statusBadgeIcon,
+  statusBadgeLabel,
+  statusBadgeTone,
+} from "../ui/Badge";
 import { Button } from "../ui/Button";
 import type { TipIntent, TipStatus } from "../../types/tip";
 import { fetchJson, ApiCallError } from "../../lib/fetcher";
@@ -110,6 +115,7 @@ export function TipStatusCard({
           </p>
         </div>
         <Badge tone={statusBadgeTone(status)}>
+          {statusBadgeIcon(status)}
           {statusBadgeLabel(status)}
         </Badge>
       </div>
