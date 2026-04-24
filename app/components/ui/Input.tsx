@@ -1,6 +1,11 @@
 "use client";
 
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from "react";
+import {
+  forwardRef,
+  useId,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 
 export interface InputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, "prefix" | "size"> {
@@ -26,7 +31,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   },
   ref
 ) {
-  const inputId = id ?? `in-${Math.random().toString(36).slice(2, 8)}`;
+  // useId() is deterministic across server + client, unlike the
+  // Math.random() it replaces — otherwise the <label htmlFor=...>
+  // and <input id=...> on SSR and on the client first render end up
+  // with different values and React flags a hydration mismatch.
+  const generatedId = useId();
+  const inputId = id ?? generatedId;
   const height = inputSize === "md" ? "h-12" : "h-14";
   return (
     <div className="flex w-full flex-col gap-1.5">
