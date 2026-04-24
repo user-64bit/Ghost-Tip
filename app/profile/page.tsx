@@ -15,6 +15,7 @@ import {
   statusBadgeLabel,
   statusBadgeTone,
 } from "../components/ui/Badge";
+import { CountdownTimer } from "../components/ui/CountdownTimer";
 import { lamportsToSolString } from "../lib/lamports";
 import { fetchJson } from "../lib/fetcher";
 import type { Cluster, TipMode, TipStatus } from "../types/tip";
@@ -36,6 +37,7 @@ interface SentRow {
   claimedAt: string | null;
   refundedAt: string | null;
   cancelledAt: string | null;
+  memo?: string | null;
 }
 
 interface ReceivedRow {
@@ -50,6 +52,7 @@ interface ReceivedRow {
   tokenSymbol: string;
   tokenDecimals: number;
   status: TipStatus;
+  expiryAt: string;
   createdAt: string;
   claimedAt: string | null;
   txSignature: string | null;
@@ -241,6 +244,7 @@ function SentList({
               tokenDecimals={t.tokenDecimals ?? 9}
               status={t.status}
               createdAt={t.createdAt}
+              expiryAt={t.expiryAt}
               cluster={t.cluster ?? cluster}
               mode={t.mode}
               rail={t.rail ?? null}
@@ -264,6 +268,7 @@ function SentList({
             tokenDecimals={9}
             status={(t.status as TipStatus) ?? "CLAIMABLE"}
             createdAt={t.createdAt}
+            expiryAt={t.expiryAt}
             cluster={t.cluster ?? cluster}
             mode={t.mode ?? "ESCROW_CLAIM"}
             rail={t.rail ?? null}
@@ -314,6 +319,7 @@ function ReceivedList({
           tokenDecimals={r.tokenDecimals}
           status={r.status}
           createdAt={r.createdAt}
+          expiryAt={r.expiryAt}
           cluster={r.cluster ?? cluster}
           mode={r.mode}
           rail={r.rail}
@@ -360,6 +366,21 @@ function EmptyState({ title, body }: { title: string; body: string }) {
   );
 }
 
+const ROW_GLOW: Partial<Record<TipStatus, string>> = {
+  CLAIMABLE:
+    "radial-gradient(circle at 0% 50%, rgba(124,106,247,0.14), transparent 55%)",
+  PENDING:
+    "radial-gradient(circle at 0% 50%, rgba(244,185,66,0.10), transparent 55%)",
+  CLAIMED:
+    "radial-gradient(circle at 0% 50%, rgba(78,205,196,0.10), transparent 55%)",
+  REFUNDED:
+    "radial-gradient(circle at 0% 50%, rgba(120,180,160,0.07), transparent 55%)",
+  CANCELLED:
+    "radial-gradient(circle at 0% 50%, rgba(220,130,150,0.06), transparent 55%)",
+  FAILED:
+    "radial-gradient(circle at 0% 50%, rgba(255,107,107,0.08), transparent 55%)",
+};
+
 function TipRow({
   id,
   direction,
@@ -369,6 +390,7 @@ function TipRow({
   tokenDecimals,
   status,
   createdAt,
+  expiryAt,
   cluster,
   mode,
   rail,
@@ -381,6 +403,7 @@ function TipRow({
   tokenDecimals: number;
   status: TipStatus;
   createdAt: string;
+  expiryAt?: string;
   cluster: Cluster;
   mode: TipMode;
   rail: "native" | "loyal" | null;
@@ -401,46 +424,88 @@ function TipRow({
     }
   })();
 
+  const glow = ROW_GLOW[status];
+  const isLive = status === "CLAIMABLE" && !!expiryAt;
+
   return (
     <Link
       href={`/tip/${id}`}
-      className="flex items-center justify-between rounded-xl border border-border bg-surface px-4 py-3 transition hover:border-border-strong"
+      className="group relative block overflow-hidden rounded-xl border border-border bg-surface px-4 py-3 transition hover:border-border-strong"
     >
-      <div className="flex items-center gap-4">
-        <Badge tone={statusBadgeTone(status)}>
-          {statusBadgeIcon(status)}
-          {statusBadgeLabel(status)}
-        </Badge>
-        <div>
-          <p className="text-sm font-medium">
-            {direction === "in" ? "from " : "to "}
-            <span className="font-mono">
-              {handle === "Anonymous" ? "Anonymous" : `@${handle}`}
-            </span>
-          </p>
-          <p className="flex flex-wrap items-center gap-1.5 text-[11px] text-subtle">
+      {glow && (
+        <div
+          className="pointer-events-none absolute inset-0 opacity-80 transition-opacity group-hover:opacity-100"
+          style={{ background: glow }}
+          aria-hidden
+        />
+      )}
+      <div className="relative flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-4">
+          <Badge tone={statusBadgeTone(status)}>
+            {statusBadgeIcon(status)}
+            {statusBadgeLabel(status)}
+          </Badge>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">
+              {direction === "in" ? "from " : "to "}
+              <span className="font-mono">
+                {handle === "Anonymous" ? "Anonymous" : `@${handle}`}
+              </span>
+            </p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-subtle">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: CLUSTER_DOT[cluster] }}
+                aria-hidden
+              />
+              <span>{CLUSTER_LABEL[cluster]}</span>
+              <span className="text-border-strong">·</span>
+              <ModeChip mode={mode} rail={rail} />
+              <span className="text-border-strong">·</span>
+              <span>{formatRelative(createdAt)}</span>
+              {isLive && expiryAt && (
+                <>
+                  <span className="text-border-strong">·</span>
+                  <CountdownTimer expiryAt={expiryAt} compact />
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <p className="font-mono text-sm tabular-nums">
             <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ backgroundColor: CLUSTER_DOT[cluster] }}
-              aria-hidden
-            />
-            <span>{CLUSTER_LABEL[cluster]}</span>
-            <span className="text-border-strong">·</span>
-            <ModeChip mode={mode} rail={rail} />
-            <span className="text-border-strong">·</span>
-            <span>{new Date(createdAt).toLocaleString()}</span>
+              className={
+                direction === "in"
+                  ? "text-[#7BE3DB]"
+                  : "text-foreground"
+              }
+            >
+              {direction === "in" ? "+" : ""}
+              {display}
+            </span>{" "}
+            <span className="text-xs text-muted">{tokenSymbol}</span>
           </p>
+          <span className="text-subtle transition group-hover:translate-x-0.5 group-hover:text-foreground">
+            →
+          </span>
         </div>
       </div>
-      <p className="font-mono text-sm tabular-nums">
-        <span className={direction === "in" ? "text-[#7BE3DB]" : ""}>
-          {direction === "in" ? "+" : ""}
-          {display}
-        </span>{" "}
-        <span className="text-xs text-muted">{tokenSymbol}</span>
-      </p>
     </Link>
   );
+}
+
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  const delta = Date.now() - then;
+  const m = Math.floor(delta / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 function ModeChip({
