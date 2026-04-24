@@ -1,4 +1,7 @@
 import { PrismaClient } from "@prisma/client";
+// Side-effect import: runs validateEnv() once at module load so missing /
+// dangerous config fails fast at server boot rather than at first request.
+import "./env";
 
 /**
  * Prisma client singleton. Next.js hot-reload in dev will otherwise spawn a
