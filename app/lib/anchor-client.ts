@@ -124,3 +124,35 @@ export function buildCancelTipInstruction(args: {
     data,
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/*                        Native SOL system-program transfer                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Build a plain System Program Transfer instruction for the DIRECT_SEND +
+ * rail=native path. Not private — GhostTip uses this for warm native-SOL
+ * tips where the recipient is already mapped to a wallet. The Loyal
+ * private rail is SPL-only, so native SOL direct sends fall through to a
+ * vanilla transfer.
+ *
+ * System Program Transfer layout:
+ *   [0,1,2,3] = instruction index 2 (little-endian u32)
+ *   [4..12]   = amount (little-endian u64)
+ */
+export function buildNativeTransferInstruction(args: {
+  from: Address;
+  to: Address;
+  lamports: bigint;
+}): Instruction {
+  const TRANSFER_IX = new Uint8Array([2, 0, 0, 0]);
+  const data = concat(TRANSFER_IX, u64LE(args.lamports));
+  return {
+    programAddress: SYSTEM_PROGRAM_ID,
+    accounts: [
+      { address: args.from, role: AccountRole.WRITABLE_SIGNER },
+      { address: args.to, role: AccountRole.WRITABLE },
+    ],
+    data,
+  };
+}
