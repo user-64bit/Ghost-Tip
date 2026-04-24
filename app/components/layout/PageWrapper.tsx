@@ -51,9 +51,6 @@ function Footer() {
       <p className="tracking-[0.12em] uppercase">
         Private tips, routed through Loyal Network
       </p>
-      <p className="text-subtle">
-        Built for the Loyal Hackathon · GhostTip keeps recipients private.
-      </p>
     </footer>
   );
 }
