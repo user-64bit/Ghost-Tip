@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-// fail() is not used here — OAuth errors always redirect back to the claim page
-// with an ?error=CODE query string, handled by the ClaimFlow UI.
 import { redis } from "../../../../lib/server/redis";
 import { prisma } from "../../../../lib/server/prisma";
 import {
@@ -12,6 +10,10 @@ import { emitAuditEvent } from "../../../../lib/server/identity";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const TWITTER_TOKEN_URL = "https://api.twitter.com/2/oauth2/token";
+const TWITTER_ME_URL = "https://api.twitter.com/2/users/me";
+const CLAIM_SESSION_TTL_SEC = 60 * 30; // 30 min, per spec §16
+
 interface OAuthStateEntry {
   token: string;
   verifier: string;
@@ -20,34 +22,38 @@ interface OAuthStateEntry {
 }
 
 /**
- * X OAuth callback. On success, verifies the returned username matches the
- * claim's intended handle, writes a short-lived claim session to Redis, and
- * redirects back to the claim page with a session token.
+ * X OAuth 2.0 PKCE callback.
+ *
+ * 1. Validate state parameter (Redis, single-use).
+ * 2. Exchange authorization code for an access token (confidential client
+ *    when TWITTER_CLIENT_SECRET is set, public client otherwise).
+ * 3. Call /users/me to get the authenticated username.
+ * 4. Compare to the claim's intendedHandle (case-insensitive).
+ * 5. On match, mint a short-lived claim session in Redis.
+ *
+ * Errors always redirect back to /claim/{token}?error=CODE — the
+ * ClaimFlow UI surfaces the code as a user-facing toast.
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const state = url.searchParams.get("state") ?? "";
   const code = url.searchParams.get("code") ?? "";
-  const bypass = url.searchParams.get("bypass") === "1";
 
   const stateRaw = await redis.get(`oauth_state:${state}`);
-  if (!stateRaw) {
-    return redirectWithError(req, "", "OAUTH_STATE_INVALID");
-  }
+  if (!stateRaw) return redirectWithError(req, "", "OAUTH_STATE_INVALID");
   let stateEntry: OAuthStateEntry;
   try {
     stateEntry = JSON.parse(stateRaw) as OAuthStateEntry;
   } catch {
     return redirectWithError(req, "", "OAUTH_STATE_INVALID");
   }
+  // Single-use: burn state immediately so replay is impossible.
   await redis.del(`oauth_state:${state}`);
 
   const { token, intendedHandle, verifier } = stateEntry;
 
-  // Verify the claim still exists & isn't already claimed.
-  const hash = hashClaimToken(token);
   const claim = await prisma.claimLink.findUnique({
-    where: { secretTokenHash: hash },
+    where: { secretTokenHash: hashClaimToken(token) },
   });
   if (!claim) return redirectWithError(req, token, "CLAIM_TOKEN_INVALID");
   if (claim.claimedAt)
@@ -55,75 +61,79 @@ export async function GET(req: NextRequest) {
   if (claim.revokedAt)
     return redirectWithError(req, token, "CLAIM_TOKEN_INVALID");
 
-  let verifiedHandle: string;
+  if (!code) return redirectWithError(req, token, "OAUTH_FAILED");
 
-  if (bypass && process.env.NEXT_PUBLIC_OAUTH_BYPASS === "true") {
-    // Dev bypass: trust the claim's intended handle. This is ONLY for demos
-    // where Twitter API creds aren't wired up.
-    verifiedHandle = intendedHandle;
-    await emitAuditEvent({
-      actor: `oauth_bypass`,
-      eventType: "oauth_verified",
-      metadata: { bypass: true, intendedHandle },
-    });
-  } else {
-    if (!code) return redirectWithError(req, token, "OAUTH_FAILED");
-
-    const clientId = process.env.TWITTER_CLIENT_ID;
-    const clientSecret = process.env.TWITTER_CLIENT_SECRET;
-    if (!clientId) return redirectWithError(req, token, "OAUTH_FAILED");
-
-    const appUrl =
-      process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? url.origin;
-    const redirectUri = `${appUrl}/api/auth/x/callback`;
-
-    try {
-      const tokenRes = await fetch("https://api.twitter.com/2/oauth2/token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          ...(clientSecret
-            ? {
-                Authorization: `Basic ${Buffer.from(
-                  `${clientId}:${clientSecret}`
-                ).toString("base64")}`,
-              }
-            : {}),
-        },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          code,
-          client_id: clientId,
-          redirect_uri: redirectUri,
-          code_verifier: verifier,
-        }).toString(),
-      });
-      if (!tokenRes.ok) {
-        console.error("x oauth token exchange failed", await tokenRes.text());
-        return redirectWithError(req, token, "OAUTH_FAILED");
-      }
-      const tokenJson = (await tokenRes.json()) as { access_token?: string };
-      const accessToken = tokenJson.access_token;
-      if (!accessToken) return redirectWithError(req, token, "OAUTH_FAILED");
-
-      const meRes = await fetch("https://api.twitter.com/2/users/me", {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!meRes.ok) {
-        console.error("x oauth me failed", await meRes.text());
-        return redirectWithError(req, token, "OAUTH_FAILED");
-      }
-      const meJson = (await meRes.json()) as {
-        data?: { username?: string };
-      };
-      verifiedHandle = (meJson.data?.username ?? "").toLowerCase();
-    } catch (err) {
-      console.error("x oauth error", err);
-      return redirectWithError(req, token, "OAUTH_FAILED");
-    }
+  const clientId = process.env.TWITTER_CLIENT_ID;
+  const clientSecret = process.env.TWITTER_CLIENT_SECRET;
+  if (!clientId) {
+    console.error("[x-oauth] TWITTER_CLIENT_ID missing at callback");
+    return redirectWithError(req, token, "OAUTH_FAILED");
   }
 
-  if (verifiedHandle.toLowerCase() !== intendedHandle.toLowerCase()) {
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? url.origin;
+  const redirectUri = `${appUrl}/api/auth/x/callback`;
+
+  let verifiedHandle: string;
+  try {
+    const tokenRes = await fetch(TWITTER_TOKEN_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        // Twitter's confidential-client flow uses HTTP Basic. Public
+        // clients (PKCE only, no secret) send client_id in the body.
+        ...(clientSecret
+          ? {
+              Authorization: `Basic ${Buffer.from(
+                `${clientId}:${clientSecret}`
+              ).toString("base64")}`,
+            }
+          : {}),
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        code_verifier: verifier,
+      }).toString(),
+    });
+    if (!tokenRes.ok) {
+      console.error(
+        "[x-oauth] token exchange failed",
+        tokenRes.status,
+        await tokenRes.text()
+      );
+      return redirectWithError(req, token, "OAUTH_FAILED");
+    }
+    const tokenJson = (await tokenRes.json()) as { access_token?: string };
+    const accessToken = tokenJson.access_token;
+    if (!accessToken) {
+      console.error("[x-oauth] token response missing access_token");
+      return redirectWithError(req, token, "OAUTH_FAILED");
+    }
+
+    const meRes = await fetch(TWITTER_ME_URL, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!meRes.ok) {
+      console.error(
+        "[x-oauth] /users/me failed",
+        meRes.status,
+        await meRes.text()
+      );
+      return redirectWithError(req, token, "OAUTH_FAILED");
+    }
+    const meJson = (await meRes.json()) as { data?: { username?: string } };
+    verifiedHandle = (meJson.data?.username ?? "").toLowerCase();
+    // NOTE: access_token is deliberately discarded here — we only need it
+    // for the one /users/me call. Never persisted, never returned to client.
+  } catch (err) {
+    console.error("[x-oauth] unexpected error during code exchange", err);
+    return redirectWithError(req, token, "OAUTH_FAILED");
+  }
+
+  if (verifiedHandle !== intendedHandle.toLowerCase()) {
     await emitAuditEvent({
       actor: `x:${verifiedHandle}`,
       eventType: "oauth_failed",
@@ -132,11 +142,10 @@ export async function GET(req: NextRequest) {
     return redirectWithError(req, token, "OAUTH_MISMATCH");
   }
 
-  // Mint a claim session — 30 min TTL per spec §16.
   const session = randomSessionToken();
   await redis.setex(
     `claim_session:${session}`,
-    60 * 30,
+    CLAIM_SESSION_TTL_SEC,
     JSON.stringify({
       token,
       verifiedHandle,
@@ -150,8 +159,6 @@ export async function GET(req: NextRequest) {
     metadata: { verifiedHandle },
   });
 
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? url.origin;
   const back = new URL(`${appUrl}/claim/${token}`);
   back.searchParams.set("session", session);
   return NextResponse.redirect(back.toString());
