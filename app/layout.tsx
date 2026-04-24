@@ -59,14 +59,32 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     url: "/",
     locale: "en_US",
-    // `app/opengraph-image.tsx` is auto-wired by Next.js conventions —
-    // no need to list the image explicitly here.
+    // Static PNG served from /public. We previously used a dynamic
+    // Satori-rendered OG route, but Twitter/X silently dropped those on
+    // some crawls — a committed PNG is boring and universally honoured.
+    // Regenerate with `bun scripts/generate-og.ts` after brand changes.
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "GhostTip — Tip anyone. Stay ghost.",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
     creator: "@GhostTip",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "GhostTip — Tip anyone. Stay ghost.",
+      },
+    ],
   },
   icons: {
     icon: "/icon.svg",

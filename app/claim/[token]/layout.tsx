@@ -23,12 +23,28 @@ export const metadata: Metadata = {
     description:
       "Verify with X and connect a wallet to claim. Private, auto-refund if unclaimed.",
     type: "website",
+    images: [
+      {
+        url: "/og-image-claim.png",
+        width: 1200,
+        height: 630,
+        alt: "Someone tipped you on GhostTip — Claim your tip.",
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: "Someone tipped you · GhostTip",
     description:
       "Verify with X and connect a wallet to claim. Private, auto-refund if unclaimed.",
+    images: [
+      {
+        url: "/og-image-claim.png",
+        width: 1200,
+        height: 630,
+        alt: "Someone tipped you on GhostTip — Claim your tip.",
+      },
+    ],
   },
   // Each claim token is unique; tell social scrapers + search not to
   // index individual claim pages (they expire, they're sensitive).
