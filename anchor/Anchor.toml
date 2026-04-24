@@ -4,13 +4,13 @@
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-vault = "CAUVfW4YopPjuiWxWVHP2R4Wj8XKUKSysHhaipGGcCRA"
-ghosttip = "GhsTipQhNGUc8vN3WtNpe6VbMTaZh6UgJcy3q8LjMXyE"
-
 [programs.devnet]
-vault = "CAUVfW4YopPjuiWxWVHP2R4Wj8XKUKSysHhaipGGcCRA"
+ghosttip = "C7GTb7VYxdrG38MKGPxLGb14X199btYZ5kDerSGiayW5"
+vault = "BZC1aWuSxh7hX7vpBmDNxYxmZpUjtChFGjaSABmCirYf"
+
+[programs.localnet]
 ghosttip = "GhsTipQhNGUc8vN3WtNpe6VbMTaZh6UgJcy3q8LjMXyE"
+vault = "CAUVfW4YopPjuiWxWVHP2R4Wj8XKUKSysHhaipGGcCRA"
 
 [registry]
 url = "https://api.apr.dev"

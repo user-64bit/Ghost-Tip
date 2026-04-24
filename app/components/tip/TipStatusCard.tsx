@@ -65,7 +65,7 @@ export function TipStatusCard({
           escrowPda: tip.tipEscrowPda ?? "",
           programId:
             process.env.NEXT_PUBLIC_PROGRAM_ID ??
-            "GhsTipQhNGUc8vN3WtNpe6VbMTaZh6UgJcy3q8LjMXyE",
+            "C7GTb7VYxdrG38MKGPxLGb14X199btYZ5kDerSGiayW5",
         },
       });
       const sig = await send({ instructions: [ix] });

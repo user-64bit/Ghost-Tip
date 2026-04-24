@@ -20,7 +20,7 @@ import {
 } from "@solana/kit";
 
 export const GHOSTTIP_PROGRAM_ID = (process.env.NEXT_PUBLIC_PROGRAM_ID ??
-  "GhsTipQhNGUc8vN3WtNpe6VbMTaZh6UgJcy3q8LjMXyE") as Address;
+  "C7GTb7VYxdrG38MKGPxLGb14X199btYZ5kDerSGiayW5") as Address;
 
 export const SYSTEM_PROGRAM_ID =
   "11111111111111111111111111111111" as Address;

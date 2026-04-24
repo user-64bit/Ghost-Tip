@@ -144,15 +144,11 @@ export function ClaimFlow({ token }: { token: string }) {
       const message = `ghosttip-claim:${verified.tipIntentId}:${token}:${recipientWallet}`;
       const msgBytes = new TextEncoder().encode(message);
 
-      // Wallet-standard signMessage. The wallet-adapter context's session may
-      // expose signMessage — we call it here directly.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const w = wallet as any;
-      if (typeof w.signMessage !== "function") {
+      if (!wallet.signMessage) {
         toast.error("This wallet doesn't support message signing.");
         return;
       }
-      const sigBytes: Uint8Array = await w.signMessage(msgBytes);
+      const sigBytes = await wallet.signMessage(msgBytes);
       const walletSignature = bs58.encode(sigBytes);
 
       try {
