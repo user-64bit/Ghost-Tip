@@ -23,7 +23,14 @@ export const POST = handler(
   if (!session) return fail("CLAIM_SESSION_INVALID", undefined, 400);
 
   const raw = await redis.get(`claim_session:${session}`);
-  if (!raw) return fail("CLAIM_SESSION_INVALID", undefined, 410);
+  if (!raw) {
+    console.warn("[claim:verify] session not found in redis", {
+      sessionPrefix: session.slice(0, 8) + "…",
+      hint:
+        "Redis restart, TTL expiry, or the session was already consumed by a prior execute call.",
+    });
+    return fail("CLAIM_SESSION_INVALID", undefined, 410);
+  }
 
   let parsed: { token: string; verifiedHandle: string; verifiedAt: string };
   try {
@@ -31,8 +38,13 @@ export const POST = handler(
   } catch {
     return fail("CLAIM_SESSION_INVALID", undefined, 410);
   }
-  if (parsed.token !== token)
+  if (parsed.token !== token) {
+    console.warn("[claim:verify] session token mismatch", {
+      sessionToken: parsed.token.slice(0, 8) + "…",
+      requestToken: token.slice(0, 8) + "…",
+    });
     return fail("CLAIM_SESSION_INVALID", undefined, 403);
+  }
 
   const hash = hashClaimToken(token);
   const claim = await prisma.claimLink.findUnique({

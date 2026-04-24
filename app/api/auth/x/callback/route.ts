@@ -38,9 +38,32 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const state = url.searchParams.get("state") ?? "";
   const code = url.searchParams.get("code") ?? "";
+  const twitterError = url.searchParams.get("error");
+  const isDev = process.env.NODE_ENV !== "production";
+
+  if (isDev) {
+    console.log("[x-oauth:callback] incoming", {
+      hasState: !!state,
+      hasCode: !!code,
+      twitterError,
+      twitterErrorDescription: url.searchParams.get("error_description"),
+    });
+  }
+
+  // Twitter sometimes redirects back with ?error=access_denied when the user
+  // hits "Cancel" on the consent screen. Surface that instead of the opaque
+  // OAUTH_STATE_INVALID we'd otherwise emit.
+  if (twitterError) {
+    console.warn("[x-oauth:callback] Twitter returned error:", twitterError);
+  }
 
   const stateRaw = await redis.get(`oauth_state:${state}`);
-  if (!stateRaw) return redirectWithError(req, "", "OAUTH_STATE_INVALID");
+  if (!stateRaw) {
+    console.warn("[x-oauth:callback] state not found in redis", {
+      state: state ? state.slice(0, 8) + "…" : "(empty)",
+    });
+    return redirectWithError(req, "", "OAUTH_STATE_INVALID");
+  }
   let stateEntry: OAuthStateEntry;
   try {
     stateEntry = JSON.parse(stateRaw) as OAuthStateEntry;
@@ -128,6 +151,13 @@ export async function GET(req: NextRequest) {
     verifiedHandle = (meJson.data?.username ?? "").toLowerCase();
     // NOTE: access_token is deliberately discarded here — we only need it
     // for the one /users/me call. Never persisted, never returned to client.
+    if (isDev) {
+      console.log("[x-oauth:callback] /users/me resolved handle:", {
+        verifiedHandle,
+        intendedHandle: intendedHandle.toLowerCase(),
+        match: verifiedHandle === intendedHandle.toLowerCase(),
+      });
+    }
   } catch (err) {
     console.error("[x-oauth] unexpected error during code exchange", err);
     return redirectWithError(req, token, "OAUTH_FAILED");
@@ -158,6 +188,13 @@ export async function GET(req: NextRequest) {
     eventType: "oauth_verified",
     metadata: { verifiedHandle },
   });
+
+  if (isDev) {
+    console.log("[x-oauth:callback] success — redirecting back to claim page", {
+      sessionPrefix: session.slice(0, 8) + "…",
+      tokenPrefix: token.slice(0, 8) + "…",
+    });
+  }
 
   const back = new URL(`${appUrl}/claim/${token}`);
   back.searchParams.set("session", session);

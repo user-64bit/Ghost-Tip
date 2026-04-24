@@ -62,10 +62,21 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ].join(" ")}
       {...rest}
     >
-      {loading ? (
-        <Spinner />
-      ) : null}
-      <span className={loading ? "opacity-80" : ""}>{children}</span>
+      {loading ? <Spinner /> : null}
+      {/*
+        Inline-flex so child icons (which Tailwind's preflight renders as
+        display:block) line up next to the text instead of stacking on
+        their own line. `gap-1.5` gives icon↔label breathing room without
+        inheriting the outer button's wider `gap-2` between spinner+label.
+      */}
+      <span
+        className={[
+          "inline-flex items-center justify-center gap-1.5",
+          loading ? "opacity-80" : "",
+        ].join(" ")}
+      >
+        {children}
+      </span>
     </button>
   );
 });

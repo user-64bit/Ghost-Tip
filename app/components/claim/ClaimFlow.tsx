@@ -54,10 +54,18 @@ export function ClaimFlow({ token }: { token: string }) {
     txSignature: string;
     amount: string;
   }>(null);
+  // Surface verify progress/errors inline instead of only via toasts — the
+  // toast flashes by in 4s and a user coming back from Twitter misses it.
+  const [verifyStatus, setVerifyStatus] = useState<
+    | { kind: "idle" }
+    | { kind: "verifying"; source: "url" | "stored" }
+    | { kind: "error"; message: string }
+  >({ kind: "idle" });
 
   // Ingest the session from the OAuth callback on first render.
   useEffect(() => {
     if (!sessionFromUrl) return;
+    setVerifyStatus({ kind: "verifying", source: "url" });
     (async () => {
       try {
         const data = await fetchJson<{
@@ -82,19 +90,27 @@ export function ClaimFlow({ token }: { token: string }) {
           session: sessionFromUrl,
           verifiedHandle: data.verifiedHandle,
         });
+        setVerifyStatus({ kind: "idle" });
         // Strip the session query param so a page refresh doesn't re-verify.
         router.replace(`/claim/${token}`);
       } catch (err) {
-        toast.error(
-          err instanceof ApiCallError ? err.message : "Verification failed."
-        );
+        const message =
+          err instanceof ApiCallError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Verification failed.";
+        console.error("[claim] verify-from-url failed", err);
+        toast.error(message);
+        setVerifyStatus({ kind: "error", message });
       }
     })();
   }, [sessionFromUrl, token, router, setSession]);
 
   // Restore a persisted session if the tab was refreshed.
   useEffect(() => {
-    if (verified || !storedSession) return;
+    if (verified || !storedSession || sessionFromUrl) return;
+    setVerifyStatus({ kind: "verifying", source: "stored" });
     (async () => {
       try {
         const data = await fetchJson<{
@@ -115,15 +131,20 @@ export function ClaimFlow({ token }: { token: string }) {
           expiryAt: data.expiryAt,
           tipIntentId: data.tipIntentId,
         });
-      } catch {
+        setVerifyStatus({ kind: "idle" });
+      } catch (err) {
+        console.warn("[claim] stored session invalid, clearing", err);
         clearSession(token);
+        setVerifyStatus({ kind: "idle" });
       }
     })();
-  }, [storedSession, verified, token, clearSession]);
+  }, [storedSession, verified, sessionFromUrl, token, clearSession]);
 
   useEffect(() => {
     if (errorFromUrl) {
-      toast.error(errorMessage(errorFromUrl as ErrorCode));
+      const message = errorMessage(errorFromUrl as ErrorCode);
+      toast.error(message);
+      setVerifyStatus({ kind: "error", message });
       router.replace(`/claim/${token}`);
     }
   }, [errorFromUrl, router, token]);
@@ -267,16 +288,43 @@ export function ClaimFlow({ token }: { token: string }) {
                 exit={{ opacity: 0, y: -6 }}
                 className="space-y-3"
               >
-                <p className="text-sm text-muted">
-                  Verify you&apos;re{" "}
-                  <span className="font-mono text-foreground">
-                    @{preview.intendedHandle}
-                  </span>{" "}
-                  with X to unlock this tip.
-                </p>
-                <Button fullWidth size="lg" onClick={startVerify}>
-                  <XMark /> Verify with X
-                </Button>
+                {verifyStatus.kind === "verifying" ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-primary/40 bg-[rgba(124,106,247,0.08)] px-4 py-3">
+                    <Spinner />
+                    <p className="text-sm text-muted">
+                      {verifyStatus.source === "url"
+                        ? "Finalising your X verification…"
+                        : "Restoring your verification session…"}
+                    </p>
+                  </div>
+                ) : verifyStatus.kind === "error" ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-danger/40 bg-[rgba(255,107,107,0.06)] px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-[#FF8E8E]">
+                        Verification failed
+                      </p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {verifyStatus.message}
+                      </p>
+                    </div>
+                    <Button fullWidth size="lg" onClick={startVerify}>
+                      <XMark /> Try again
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted">
+                      Verify you&apos;re{" "}
+                      <span className="font-mono text-foreground">
+                        @{preview.intendedHandle}
+                      </span>{" "}
+                      with X to unlock this tip.
+                    </p>
+                    <Button fullWidth size="lg" onClick={startVerify}>
+                      <XMark /> Verify with X
+                    </Button>
+                  </>
+                )}
               </motion.div>
             )}
 
@@ -676,6 +724,25 @@ function XMark() {
       <path
         d="M18.244 2H21.5l-7.6 8.67L22.5 22h-6.66l-5.2-6.82L4.58 22H1.32l8.12-9.28L1.5 2h6.83l4.7 6.2L18.24 2Zm-1.16 18h1.82L7.01 4H5.09l12 16Z"
         fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      className="h-4 w-4 shrink-0 animate-spin text-primary"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeOpacity="0.3" strokeWidth="3" />
+      <path
+        d="M22 12A10 10 0 0 0 12 2"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
       />
     </svg>
   );
