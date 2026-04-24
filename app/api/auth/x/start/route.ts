@@ -78,5 +78,18 @@ export async function GET(req: NextRequest) {
   authorize.searchParams.set("code_challenge", challenge);
   authorize.searchParams.set("code_challenge_method", "S256");
 
+  // Dev-mode visibility: if Twitter rejects the handoff (e.g. callback URL
+  // not whitelisted in the Developer Portal), this log tells the operator
+  // exactly what we sent so they can compare it against the app's
+  // registered Callback URI / Website URL.
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[x-oauth] redirecting to Twitter with:", {
+      client_id_prefix: clientId.slice(0, 6) + "…",
+      redirect_uri: callback,
+      scopes: TWITTER_OAUTH_SCOPES,
+      app_url: appUrl,
+    });
+  }
+
   return NextResponse.redirect(authorize.toString());
 }
