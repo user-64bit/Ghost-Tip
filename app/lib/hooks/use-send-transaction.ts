@@ -7,6 +7,7 @@ import {
   createSolanaRpc,
   createSolanaRpcSubscriptions,
   createTransactionMessage,
+  getBase64EncodedWireTransaction,
   getSignatureFromTransaction,
   pipe,
   sendAndConfirmTransactionFactory,
@@ -108,6 +109,31 @@ export function useSendTransaction() {
         const signedTx = await signTransactionMessageWithSigners(message);
         const signature = getSignatureFromTransaction(signedTx);
 
+        // Proactive simulation — surfaces the failing instruction's logs
+        // before we ever hit the slower sendAndConfirm path, so a user
+        // sees "Not enough SOL for fee" instead of the opaque
+        // "Transaction simulation failed" the RPC returns on preflight.
+        if (!(skipPreflight ?? false)) {
+          const wire = getBase64EncodedWireTransaction(signedTx);
+          const sim = await rpc
+            .simulateTransaction(wire, {
+              commitment: "confirmed",
+              encoding: "base64",
+              replaceRecentBlockhash: false,
+              sigVerify: false,
+            })
+            .send();
+          if (sim.value.err) {
+            if (sim.value.logs) {
+              // eslint-disable-next-line no-console
+              console.warn(
+                "[simulate] failed — logs:\n" + sim.value.logs.join("\n")
+              );
+            }
+            throw buildSimulationError(sim.value.err, sim.value.logs ?? null);
+          }
+        }
+
         const sendAndConfirm = sendAndConfirmTransactionFactory({
           rpc,
           rpcSubscriptions,
@@ -119,7 +145,9 @@ export function useSendTransaction() {
           signedTx as Parameters<typeof sendAndConfirm>[0],
           {
             commitment: "confirmed",
-            skipPreflight: skipPreflight ?? false,
+            // We already simulated above, so skipPreflight here avoids
+            // a redundant server-side simulation on the happy path.
+            skipPreflight: true,
           }
         );
 
@@ -139,4 +167,84 @@ export function useSendTransaction() {
 
 function toWs(url: string): string {
   return url.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
+}
+
+/**
+ * Turn a simulation-result `err` into a regular Error whose message
+ * classifies common failure modes (insufficient funds, program custom
+ * error, bad instruction, etc.) so `parseTransactionError` can surface
+ * something actionable to the user. The raw Solana TransactionError
+ * shape is a tagged enum; we only need to read the common variants.
+ */
+function buildSimulationError(
+  simErr: unknown,
+  logs: readonly string[] | null
+): Error {
+  const tag = readErrorTag(simErr);
+  const detail = detailFromLogs(logs);
+  const base =
+    tag === "InsufficientFundsForFee"
+      ? "Wallet can't cover the network fee"
+      : tag === "InsufficientFundsForRent"
+        ? "Transfer would leave an account below rent-exempt minimum"
+        : tag === "AccountNotFound"
+          ? "Recipient or signer account doesn't exist on this cluster"
+          : tag === "BlockhashNotFound"
+            ? "Transaction expired before confirming — retry"
+            : tag === "AlreadyProcessed"
+              ? "This transaction was already processed"
+              : tag === "SignatureFailure"
+                ? "Signature verification failed — reconnect the wallet"
+                : tag === "InstructionError"
+                  ? extractInstructionError(simErr) ??
+                    "Program rejected the instruction"
+                  : "Preflight simulation failed";
+  const msg = detail ? `${base} — ${detail}` : base;
+  const e = new Error(msg);
+  // Preserve the simulation payload as the cause so the error-classifier
+  // in parseTransactionError can pick up custom program codes etc.
+  (e as Error & { cause?: unknown }).cause = simErr;
+  return e;
+}
+
+function readErrorTag(simErr: unknown): string | null {
+  if (typeof simErr === "string") return simErr;
+  if (simErr && typeof simErr === "object") {
+    const keys = Object.keys(simErr as Record<string, unknown>);
+    if (keys.length > 0) return keys[0];
+  }
+  return null;
+}
+
+function extractInstructionError(simErr: unknown): string | null {
+  // Shape: { InstructionError: [ixIndex, <err>] }
+  if (simErr && typeof simErr === "object" && "InstructionError" in simErr) {
+    const payload = (simErr as { InstructionError: unknown }).InstructionError;
+    if (Array.isArray(payload) && payload.length === 2) {
+      const [idx, inner] = payload;
+      if (typeof inner === "string") return `ix #${idx}: ${inner}`;
+      if (inner && typeof inner === "object") {
+        if ("Custom" in inner)
+          return `ix #${idx}: custom error ${
+            (inner as { Custom: number }).Custom
+          }`;
+        const tag = readErrorTag(inner);
+        if (tag) return `ix #${idx}: ${tag}`;
+      }
+    }
+  }
+  return null;
+}
+
+function detailFromLogs(logs: readonly string[] | null): string | null {
+  if (!logs || logs.length === 0) return null;
+  // The last 1–2 lines usually carry the explanation; walk up looking for
+  // "Error:" / "failed" markers, otherwise return the final program log.
+  for (let i = logs.length - 1; i >= Math.max(0, logs.length - 6); i--) {
+    const line = logs[i];
+    if (/error|failed|insufficient|rejected/i.test(line)) {
+      return line.replace(/^Program log:\s*/i, "").slice(0, 160);
+    }
+  }
+  return logs[logs.length - 1].replace(/^Program log:\s*/i, "").slice(0, 160);
 }
