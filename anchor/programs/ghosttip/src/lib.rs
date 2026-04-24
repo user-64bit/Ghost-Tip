@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("GhsTipQhNGUc8vN3WtNpe6VbMTaZh6UgJcy3q8LjMXyE");
+declare_id!("C7GTb7VYxdrG38MKGPxLGb14X199btYZ5kDerSGiayW5");
 
 #[program]
 pub mod ghosttip {
