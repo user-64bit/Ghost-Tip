@@ -19,11 +19,19 @@ model TipIntent {
   id                        String   @id @default(uuid()) @db.Uuid
   senderWallet              String   @map("sender_wallet") @db.VarChar(44)
   cluster                   String   @default("devnet") @db.VarChar(16)
+  // ESCROW_CLAIM — cold recipient, funds parked in Anchor escrow PDA until
+  //                OAuth-gated claim through the claim link.
+  // DIRECT_SEND  — warm recipient (IdentityMap hit). Either a Loyal private
+  //                transfer to the recipient's username deposit (SPL) or a
+  //                direct native SOL transfer to their mapped wallet.
+  mode                      String   @default("ESCROW_CLAIM") @db.VarChar(20)
   recipientHandleType       String   @map("recipient_handle_type") @db.VarChar(20)
   recipientHandleValue      String   @map("recipient_handle_value") @db.VarChar(255)
   resolvedRecipientWallet   String?  @map("resolved_recipient_wallet") @db.VarChar(44)
   amount                    BigInt
   tokenMint                 String   @map("token_mint") @db.VarChar(44)
+  tokenSymbol               String   @default("SOL") @map("token_symbol") @db.VarChar(16)
+  tokenDecimals             Int      @default(9) @map("token_decimals")
   memo                      String?
   status                    String   @default("DRAFT") @db.VarChar(20)
   expiryAt                  DateTime @map("expiry_at") @db.Timestamptz
@@ -39,6 +47,10 @@ model TipIntent {
   cancelledAt               DateTime? @map("cancelled_at") @db.Timestamptz
   tipEscrowPda              String?  @map("tip_escrow_pda") @db.VarChar(44)
   tipIdBytes                String   @unique @map("tip_id_bytes") @db.VarChar(64) // hex of [u8;32]
+  // For DIRECT_SEND via Loyal: the username-deposit PDA the tokens landed in.
+  usernameDepositPda        String?  @map("username_deposit_pda") @db.VarChar(44)
+  // "native" | "loyal" — settlement rail used for a DIRECT_SEND. NULL for escrow.
+  rail                      String?  @db.VarChar(16)
   errorCode                 String?  @map("error_code") @db.VarChar(50)
   errorMessage              String?  @map("error_message")
 
@@ -46,6 +58,8 @@ model TipIntent {
   @@index([expiryAt])
   @@index([senderWallet])
   @@index([senderWallet, cluster])
+  @@index([resolvedRecipientWallet, cluster])
+  @@index([mode, cluster])
   @@map("tip_intent")
 }
 
