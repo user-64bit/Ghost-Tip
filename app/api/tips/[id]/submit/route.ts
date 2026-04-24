@@ -1,16 +1,15 @@
 import { fail, handler, ok } from "../../../../lib/server/api";
 import { prisma } from "../../../../lib/server/prisma";
 import { emitAuditEvent } from "../../../../lib/server/identity";
-import { loyal } from "../../../../lib/loyal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * Called after the sender signs the deposit_tip instruction on the client
- * and the tx confirms. We mark the tip CLAIMABLE and run the deposit
- * through the Loyal "private rail" wrapper — in mock mode this just echoes
- * the tx signature back with added privacy metadata.
+ * and the tx confirms. Flips DRAFT → CLAIMABLE and records the on-chain
+ * signature. For ESCROW_CLAIM tips only — DIRECT_SEND tips use
+ * /submit-direct.
  */
 export const POST = handler(
   async (req, { params }: { params: Promise<{ id: string }> }) => {
@@ -27,27 +26,14 @@ export const POST = handler(
 
   const tip = await prisma.tipIntent.findUnique({ where: { id } });
   if (!tip) return fail("TIP_NOT_FOUND", undefined, 404);
+  if (tip.mode !== "ESCROW_CLAIM")
+    return fail(
+      "TIP_INVALID_STATE",
+      "DIRECT_SEND tips use /submit-direct",
+      409
+    );
   if (tip.status !== "DRAFT" && tip.status !== "PENDING")
     return fail("TIP_INVALID_STATE", undefined, 409);
-
-  // Wrap the deposit through the Loyal mock so the flow is demonstrable.
-  // Real Loyal SDK: this is where we'd call `loyal.privateSend()` BEFORE the
-  // client submits, and the rail would perform its own settlement.
-  void loyal.privateSend(
-    {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      sender: tip.senderWallet as any,
-      recipientHint: `${tip.recipientHandleType}:${tip.recipientHandleValue}`,
-      amountLamports: BigInt(tip.amount.toString()),
-      tokenMint: tip.tokenMint,
-      settlementInstruction: {
-        programId: process.env.NEXT_PUBLIC_PROGRAM_ID ?? "",
-        escrowPda: tip.tipEscrowPda ?? "",
-        tipIdHex: tip.tipIdBytes,
-      },
-    },
-    { txSignatureHint: txSignature }
-  );
 
   const updated = await prisma.tipIntent.update({
     where: { id },

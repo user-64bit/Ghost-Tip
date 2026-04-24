@@ -15,7 +15,6 @@ import {
   emitAuditEvent,
   upsertIdentityMap,
 } from "../../../../lib/server/identity";
-import { loyal } from "../../../../lib/loyal";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,17 +115,6 @@ export const POST = handler(
       502
     );
   }
-
-  // Mirror the settlement through the Loyal mock for parity with the send path.
-  void loyal.privateSend(
-    {
-      sender: tip.senderWallet as Address,
-      recipientHint: recipientWallet,
-      amountLamports: BigInt(tip.amount.toString()),
-      tokenMint: tip.tokenMint,
-    },
-    { txSignatureHint: txSignature }
-  );
 
   // Update DB + identity map.
   await prisma.tipIntent.update({
