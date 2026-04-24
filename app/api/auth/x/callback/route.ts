@@ -140,11 +140,15 @@ export async function GET(req: NextRequest) {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!meRes.ok) {
-      console.error(
-        "[x-oauth] /users/me failed",
-        meRes.status,
-        await meRes.text()
-      );
+      const body = await meRes.text();
+      console.error("[x-oauth] /users/me failed", meRes.status, body);
+      // Most common cause in hackathon setups: the Twitter Dev App hasn't
+      // been attached to a Project, so v2 endpoints refuse with 403
+      // "client-not-enrolled". Redirect with a more actionable code so
+      // the claim UI can explain the fix instead of a generic message.
+      if (meRes.status === 403 && /client-not-enrolled/i.test(body)) {
+        return redirectWithError(req, token, "OAUTH_APP_NOT_ENROLLED");
+      }
       return redirectWithError(req, token, "OAUTH_FAILED");
     }
     const meJson = (await meRes.json()) as { data?: { username?: string } };
