@@ -1,4 +1,4 @@
-import type { CreateTipResponse, HandleType } from "../../types/tip";
+import type { Cluster, CreateTipResponse, HandleType } from "../../types/tip";
 import { fail, handler, ok, parseBigIntAmount } from "../../lib/server/api";
 import { prisma } from "../../lib/server/prisma";
 import { redis } from "../../lib/server/redis";
@@ -21,6 +21,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
+
+const VALID_CLUSTERS: Cluster[] = ["devnet", "testnet", "mainnet", "localnet"];
+
+function resolveCluster(raw: unknown): Cluster {
+  if (typeof raw === "string" && VALID_CLUSTERS.includes(raw as Cluster)) {
+    return raw as Cluster;
+  }
+  const envCluster = process.env.NEXT_PUBLIC_SOLANA_NETWORK;
+  if (envCluster && VALID_CLUSTERS.includes(envCluster as Cluster)) {
+    return envCluster as Cluster;
+  }
+  return "devnet";
+}
 
 export const POST = handler(async (req) => {
   let body: Record<string, unknown>;
@@ -48,6 +61,7 @@ export const POST = handler(async (req) => {
     return fail("INVALID_AMOUNT", (e as Error).message, 400);
   }
 
+  const cluster = resolveCluster(body.cluster);
   const tokenMint = String(body.tokenMint ?? SOL_MINT);
   const memo =
     body.memo == null ? null : String(body.memo).slice(0, 280).trim() || null;
@@ -79,6 +93,7 @@ export const POST = handler(async (req) => {
     const t = await tx.tipIntent.create({
       data: {
         senderWallet,
+        cluster,
         recipientHandleType: handleType,
         recipientHandleValue: handleCheck.value,
         amount,
@@ -121,6 +136,7 @@ export const POST = handler(async (req) => {
   const response: CreateTipResponse = {
     tipIntentId: tip.id,
     status: "DRAFT",
+    cluster,
     claimLink: `${appUrl}/claim/${tokens.raw}`,
     claimToken: tokens.raw,
     expiryAt: expiryAt.toISOString(),

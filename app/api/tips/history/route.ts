@@ -1,16 +1,30 @@
 import { fail, handler, ok, serialise } from "../../../lib/server/api";
 import { prisma } from "../../../lib/server/prisma";
+import type { Cluster } from "../../../types/tip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const VALID_CLUSTERS: Cluster[] = ["devnet", "testnet", "mainnet", "localnet"];
 
 export const GET = handler(async (req) => {
   const url = new URL(req.url);
   const wallet = url.searchParams.get("wallet")?.trim();
   if (!wallet) return fail("INVALID_INPUT", "wallet query param required", 400);
 
+  // Optional cluster filter — the profile page passes the active cluster
+  // so senders only see history scoped to the network they're currently on.
+  const clusterParam = url.searchParams.get("cluster")?.trim();
+  const cluster =
+    clusterParam && VALID_CLUSTERS.includes(clusterParam as Cluster)
+      ? (clusterParam as Cluster)
+      : undefined;
+
   const tips = await prisma.tipIntent.findMany({
-    where: { senderWallet: wallet },
+    where: {
+      senderWallet: wallet,
+      ...(cluster ? { cluster } : {}),
+    },
     orderBy: { createdAt: "desc" },
     take: 50,
   });
@@ -20,6 +34,7 @@ export const GET = handler(async (req) => {
       tips.map((t) => ({
         id: t.id,
         senderWallet: t.senderWallet,
+        cluster: t.cluster,
         recipientHandleType: t.recipientHandleType,
         recipientHandleValue: t.recipientHandleValue,
         amount: t.amount.toString(),

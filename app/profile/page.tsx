@@ -6,14 +6,16 @@ import { motion } from "framer-motion";
 import { PageWrapper } from "../components/layout/PageWrapper";
 import { useWallet } from "../lib/wallet/context";
 import { useTipStore } from "../store/tipStore";
+import { useCluster } from "../components/cluster-context";
 import { Badge, statusBadgeLabel, statusBadgeTone } from "../components/ui/Badge";
 import { lamportsToSolString } from "../lib/lamports";
 import { fetchJson } from "../lib/fetcher";
-import type { TipStatus } from "../types/tip";
+import type { Cluster, TipStatus } from "../types/tip";
 
 interface HistoryRow {
   id: string;
   senderWallet: string;
+  cluster: Cluster;
   recipientHandleType: string;
   recipientHandleValue: string;
   amount: string;
@@ -25,17 +27,38 @@ interface HistoryRow {
   cancelledAt: string | null;
 }
 
+const CLUSTER_LABEL: Record<Cluster, string> = {
+  mainnet: "Mainnet",
+  devnet: "Devnet",
+  testnet: "Testnet",
+  localnet: "Localnet",
+};
+
+const CLUSTER_DOT: Record<Cluster, string> = {
+  mainnet: "#4ECDC4",
+  devnet: "#7C6AF7",
+  testnet: "#F4B942",
+  localnet: "#6B6B8A",
+};
+
 const fetcher = (url: string) => fetchJson<HistoryRow[]>(url);
 
 export default function ProfilePage() {
   const { wallet, status } = useWallet();
+  const { cluster } = useCluster();
   const address = wallet?.account.address;
   const { data, error, isLoading } = useSWR<HistoryRow[]>(
-    address ? `/api/tips/history?wallet=${address}` : null,
+    address
+      ? `/api/tips/history?wallet=${address}&cluster=${cluster}`
+      : null,
     fetcher,
     { refreshInterval: 10_000 }
   );
-  const storedTips = useTipStore((s) => s.tips);
+  // Older clients stored tips before the cluster field existed — treat
+  // those as belonging to the current cluster so the migration is seamless.
+  const storedTips = useTipStore((s) =>
+    s.tips.filter((t) => (t.cluster ?? cluster) === cluster)
+  );
 
   return (
     <PageWrapper>
@@ -49,7 +72,17 @@ export default function ProfilePage() {
           Your tips
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Tips you&apos;ve sent and their current state.
+          Tips you&apos;ve sent on{" "}
+          <span className="inline-flex items-center gap-1.5 align-middle">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: CLUSTER_DOT[cluster] }}
+            />
+            <span className="font-medium text-foreground">
+              {CLUSTER_LABEL[cluster]}
+            </span>
+          </span>
+          . Switch clusters in the header to see others.
         </p>
       </motion.div>
 
@@ -84,6 +117,7 @@ export default function ProfilePage() {
               amount={t.amount}
               status={t.status}
               createdAt={t.createdAt}
+              cluster={t.cluster ?? cluster}
             />
           ))}
         </div>
@@ -97,12 +131,15 @@ export default function ProfilePage() {
               amount={t.amount}
               status={(t.status as TipStatus) ?? "CLAIMABLE"}
               createdAt={t.createdAt}
+              cluster={t.cluster ?? cluster}
             />
           ))}
         </div>
       ) : (
         <div className="rounded-2xl border border-border bg-surface p-12 text-center">
-          <p className="font-display text-lg">No tips yet.</p>
+          <p className="font-display text-lg">
+            No tips on {CLUSTER_LABEL[cluster]} yet.
+          </p>
           <p className="mt-1 text-sm text-muted">
             Send your first one — it only takes 30 seconds.
           </p>
@@ -124,12 +161,14 @@ function TipRow({
   amount,
   status,
   createdAt,
+  cluster,
 }: {
   id: string;
   handle: string;
   amount: string;
   status: TipStatus;
   createdAt: string;
+  cluster: Cluster;
 }) {
   const sol = lamportsToSolString(BigInt(amount) as unknown as bigint);
   return (
@@ -143,8 +182,15 @@ function TipRow({
           <p className="text-sm font-medium">
             @<span className="font-mono">{handle}</span>
           </p>
-          <p className="text-[11px] text-subtle">
-            {new Date(createdAt).toLocaleString()}
+          <p className="flex items-center gap-1.5 text-[11px] text-subtle">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: CLUSTER_DOT[cluster] }}
+              aria-hidden
+            />
+            <span>{CLUSTER_LABEL[cluster]}</span>
+            <span className="text-border-strong">·</span>
+            <span>{new Date(createdAt).toLocaleString()}</span>
           </p>
         </div>
       </div>

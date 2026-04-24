@@ -24,6 +24,7 @@ export const GET = handler(
   const body: TipIntentResponse = serialise({
     id: tip.id,
     senderWallet: tip.senderWallet,
+    cluster: tip.cluster,
     recipientHandleType: tip.recipientHandleType,
     recipientHandleValue: tip.recipientHandleValue,
     resolvedRecipientWallet: tip.resolvedRecipientWallet,
