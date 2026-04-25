@@ -10,8 +10,8 @@ import { emitAuditEvent } from "../../../../lib/server/identity";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TWITTER_TOKEN_URL = "https://api.twitter.com/2/oauth2/token";
-const TWITTER_ME_URL = "https://api.twitter.com/2/users/me";
+const X_TOKEN_URL = "https://api.x.com/2/oauth2/token";
+const X_ME_URL = "https://api.x.com/2/users/me";
 const CLAIM_SESSION_TTL_SEC = 60 * 30; // 30 min, per spec §16
 
 interface OAuthStateEntry {
@@ -96,30 +96,37 @@ export async function GET(req: NextRequest) {
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, "") ?? url.origin;
   const redirectUri = `${appUrl}/api/auth/x/callback`;
+  const isConfidentialClient = Boolean(clientSecret);
+  const tokenBody = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+    code_verifier: verifier,
+  });
+  const tokenHeaders: Record<string, string> = {
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
+  if (isConfidentialClient) {
+    tokenHeaders.Authorization = `Basic ${Buffer.from(
+      `${clientId}:${clientSecret}`
+    ).toString("base64")}`;
+  } else {
+    tokenBody.set("client_id", clientId);
+  }
 
   let verifiedHandle: string;
   try {
-    const tokenRes = await fetch(TWITTER_TOKEN_URL, {
+    console.info("[x-oauth:callback] exchanging code", {
+      token_host: new URL(X_TOKEN_URL).host,
+      me_host: new URL(X_ME_URL).host,
+      redirect_uri: redirectUri,
+      client_auth: isConfidentialClient ? "basic" : "body",
+    });
+
+    const tokenRes = await fetch(X_TOKEN_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        // Twitter's confidential-client flow uses HTTP Basic. Public
-        // clients (PKCE only, no secret) send client_id in the body.
-        ...(clientSecret
-          ? {
-              Authorization: `Basic ${Buffer.from(
-                `${clientId}:${clientSecret}`
-              ).toString("base64")}`,
-            }
-          : {}),
-      },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code,
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code_verifier: verifier,
-      }).toString(),
+      headers: tokenHeaders,
+      body: tokenBody.toString(),
     });
     if (!tokenRes.ok) {
       console.error(
@@ -136,7 +143,7 @@ export async function GET(req: NextRequest) {
       return redirectWithError(req, token, "OAUTH_FAILED");
     }
 
-    const meRes = await fetch(TWITTER_ME_URL, {
+    const meRes = await fetch(X_ME_URL, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!meRes.ok) {

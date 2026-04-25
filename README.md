@@ -69,8 +69,12 @@ Flip these to `false` once you've wired real keys / deployed the program.
    - `GHOSTTIP_AUTHORITY_KEYPAIR` — paste the JSON array output of
      `cat authority.json`. Must be the same key used when initialising the
      program's `AuthorityConfig` PDA via `init_authority`.
-   - `TWITTER_CLIENT_ID` + `TWITTER_CLIENT_SECRET` — from the X developer
-     portal. Callback URL: `http://localhost:3000/api/auth/x/callback`.
+   - `TWITTER_CLIENT_ID` + `TWITTER_CLIENT_SECRET` — OAuth 2.0 credentials
+     from a Project-attached X App, not the API Key/Secret. Use Web App mode
+     with scopes `tweet.read` and `users.read`. Callback URL:
+     `http://localhost:3000/api/auth/x/callback` locally and
+     `https://your-domain.com/api/auth/x/callback` in production. Regenerate
+     these credentials after changing X auth settings, then redeploy Vercel.
    - `NEXT_PUBLIC_OAUTH_BYPASS=false`, `ANCHOR_ON_CHAIN_DISABLED=false`.
 
 3. **Cron**
