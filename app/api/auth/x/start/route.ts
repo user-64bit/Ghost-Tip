@@ -12,8 +12,8 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TWITTER_AUTHORIZE_URL = "https://twitter.com/i/oauth2/authorize";
-const TWITTER_OAUTH_SCOPES = "tweet.read users.read";
+const X_AUTHORIZE_URL = "https://x.com/i/oauth2/authorize";
+const X_OAUTH_SCOPES = "tweet.read users.read";
 
 /**
  * Start an X OAuth 2.0 PKCE flow.
@@ -69,27 +69,26 @@ export async function GET(req: NextRequest) {
     })
   );
 
-  const authorize = new URL(TWITTER_AUTHORIZE_URL);
+  const authorize = new URL(X_AUTHORIZE_URL);
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("client_id", clientId);
   authorize.searchParams.set("redirect_uri", callback);
-  authorize.searchParams.set("scope", TWITTER_OAUTH_SCOPES);
+  authorize.searchParams.set("scope", X_OAUTH_SCOPES);
   authorize.searchParams.set("state", state);
   authorize.searchParams.set("code_challenge", challenge);
   authorize.searchParams.set("code_challenge_method", "S256");
 
-  // Dev-mode visibility: if Twitter rejects the handoff (e.g. callback URL
-  // not whitelisted in the Developer Portal), this log tells the operator
-  // exactly what we sent so they can compare it against the app's
-  // registered Callback URI / Website URL.
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[x-oauth] redirecting to Twitter with:", {
-      client_id_prefix: clientId.slice(0, 6) + "…",
-      redirect_uri: callback,
-      scopes: TWITTER_OAUTH_SCOPES,
-      app_url: appUrl,
-    });
-  }
+  // Sanitized visibility for Vercel: if X rejects the handoff before our
+  // callback, this lets us compare the live request against Developer Console
+  // settings without logging secrets or one-time PKCE values.
+  console.info("[x-oauth] redirecting to X", {
+    authorize_host: authorize.host,
+    client_id_prefix: clientId.slice(0, 6) + "...",
+    redirect_uri: callback,
+    scopes: X_OAUTH_SCOPES,
+    app_url: appUrl,
+    confidential_client: Boolean(process.env.TWITTER_CLIENT_SECRET),
+  });
 
   return NextResponse.redirect(authorize.toString());
 }
