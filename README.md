@@ -75,6 +75,9 @@ Flip these to `false` once you've wired real keys / deployed the program.
      `http://localhost:3000/api/auth/x/callback` locally and
      `https://your-domain.com/api/auth/x/callback` in production. Regenerate
      these credentials after changing X auth settings, then redeploy Vercel.
+     The Project must also have active X API access for v2 user-context
+     endpoints; OAuth can succeed while `/2/users/me` still returns
+     `client-not-enrolled` if the access enrollment/tier is missing.
    - `NEXT_PUBLIC_OAUTH_BYPASS=false`, `ANCHOR_ON_CHAIN_DISABLED=false`.
 
 3. **Cron**

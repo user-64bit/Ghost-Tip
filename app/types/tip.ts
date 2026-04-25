@@ -216,7 +216,7 @@ export function errorMessage(code: ErrorCode): string {
     case "OAUTH_FAILED":
       return "We couldn't verify with X. Please try again.";
     case "OAUTH_APP_NOT_ENROLLED":
-      return "The X Developer App isn't attached to a Project (server config). Ask the operator to associate it and regenerate the OAuth 2.0 credentials.";
+      return "X accepted the login, but this app can't call X API v2 yet. Enable API access for the app's Project, then regenerate the OAuth 2.0 credentials and redeploy.";
     case "WALLET_SIGNATURE_INVALID":
       return "Wallet signature verification failed.";
     case "INSUFFICIENT_BALANCE":

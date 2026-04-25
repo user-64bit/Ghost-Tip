@@ -124,8 +124,20 @@ export function useSendTransaction() {
             })
             .send();
           if (sim.value.err) {
+            const tag = readErrorTag(sim.value.err);
+            if (
+              tag === "AlreadyProcessed" &&
+              (await signatureAlreadyLanded(rpc, signature))
+            ) {
+              console.info("[simulate] transaction already landed", {
+                signature,
+              });
+              mutate(
+                (key: unknown) => Array.isArray(key) && key[0] === "balance"
+              );
+              return signature;
+            }
             if (sim.value.logs) {
-              // eslint-disable-next-line no-console
               console.warn(
                 "[simulate] failed — logs:\n" + sim.value.logs.join("\n")
               );
@@ -167,6 +179,22 @@ export function useSendTransaction() {
 
 function toWs(url: string): string {
   return url.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
+}
+
+async function signatureAlreadyLanded(
+  rpc: ReturnType<typeof createSolanaRpc>,
+  signature: ReturnType<typeof getSignatureFromTransaction>
+): Promise<boolean> {
+  try {
+    const statuses = await rpc
+      .getSignatureStatuses([signature], { searchTransactionHistory: true })
+      .send();
+    const status = statuses.value[0];
+    return Boolean(status && status.err === null);
+  } catch (err) {
+    console.warn("[simulate] couldn't verify duplicate signature status", err);
+    return false;
+  }
 }
 
 /**

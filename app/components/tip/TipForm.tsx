@@ -559,7 +559,7 @@ export function TipForm() {
       <Button
         size="lg"
         onClick={handleSubmit}
-        disabled={!formReady}
+        disabled={!formReady || submitting || isSending}
         loading={submitting || isSending}
         fullWidth
       >
